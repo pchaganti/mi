@@ -1,6 +1,6 @@
 import { createInterface } from 'readline';
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 
 const tools = [
   {
@@ -27,6 +27,21 @@ const tools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'write',
+      description: 'write a file',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
 ];
 
 function runTool(name, args) {
@@ -39,6 +54,10 @@ function runTool(name, args) {
   }
   if (name === 'read') {
     return readFileSync(args.path, 'utf8');
+  }
+  if (name === 'write') {
+    writeFileSync(args.path, args.content);
+    return 'ok';
   }
   return 'unknown tool';
 }
