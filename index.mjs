@@ -1,5 +1,6 @@
 import { createInterface } from 'readline';
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 
 const tools = [
   {
@@ -14,6 +15,18 @@ const tools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'read',
+      description: 'read a file',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+      },
+    },
+  },
 ];
 
 function runTool(name, args) {
@@ -23,6 +36,9 @@ function runTool(name, args) {
     } catch (e) {
       return e.stderr || e.message;
     }
+  }
+  if (name === 'read') {
+    return readFileSync(args.path, 'utf8');
   }
   return 'unknown tool';
 }
