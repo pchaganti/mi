@@ -2,7 +2,16 @@ import { createInterface } from 'readline';
 import { execSync } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
 
-const tools = [
+const tools = {
+  bash: ({ cmd }) => {
+    try { return execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }); }
+    catch (e) { return e.stderr || e.message; }
+  },
+  read: ({ path }) => readFileSync(path, 'utf8'),
+  write: ({ path, content }) => { writeFileSync(path, content); return 'ok'; },
+};
+
+const toolDefs = [
   {
     type: 'function',
     function: {
@@ -44,24 +53,6 @@ const tools = [
   },
 ];
 
-function runTool(name, args) {
-  if (name === 'bash') {
-    try {
-      return execSync(args.cmd, { encoding: 'utf8', stdio: 'pipe' });
-    } catch (e) {
-      return e.stderr || e.message;
-    }
-  }
-  if (name === 'read') {
-    return readFileSync(args.path, 'utf8');
-  }
-  if (name === 'write') {
-    writeFileSync(args.path, args.content);
-    return 'ok';
-  }
-  return 'unknown tool';
-}
-
 async function chat(messages) {
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -69,7 +60,7 @@ async function chat(messages) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({ model: 'gpt-4o', messages, tools }),
+    body: JSON.stringify({ model: 'gpt-4o', messages, tools: toolDefs }),
   }).then(r => r.json());
   const msg = r.choices?.[0]?.message;
   if (!msg) throw new Error(JSON.stringify(r));
@@ -82,12 +73,12 @@ async function run(messages) {
     messages.push(msg);
     if (!msg.tool_calls) return msg.content;
     for (const tc of msg.tool_calls) {
-      const name = tc.function.name;
+      const { name } = tc.function;
       const args = JSON.parse(tc.function.arguments);
       console.log(`> ${name}(${JSON.stringify(args)})`);
-      const result = runTool(name, args);
+      const result = String(tools[name](args));
       console.log(result);
-      messages.push({ role: 'tool', tool_call_id: tc.id, content: String(result) });
+      messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
     }
   }
 }
