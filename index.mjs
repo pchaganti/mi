@@ -54,6 +54,7 @@ const toolDefs = [
 ];
 
 const dim = s => `\x1b[90m${s}\x1b[0m`;
+const model = process.env.MODEL || 'gpt-4o';
 
 async function chat(messages) {
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -62,7 +63,7 @@ async function chat(messages) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({ model: 'gpt-4o', messages, tools: toolDefs }),
+    body: JSON.stringify({ model, messages, tools: toolDefs }),
   }).then(r => r.json());
   const msg = r.choices?.[0]?.message;
   if (!msg) throw new Error(JSON.stringify(r));
