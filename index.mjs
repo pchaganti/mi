@@ -4,12 +4,9 @@ import { execSync } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
 
 const tools = {
-  bash: ({ cmd }) => {
-    try { return execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }); }
-    catch (e) { return e.stderr || e.message; }
-  },
-  read: ({ path }) => readFileSync(path, 'utf8'),
-  write: ({ path, content }) => { writeFileSync(path, content); return 'ok'; },
+  bash:  ({ cmd })          => { try { return execSync(cmd, { encoding: 'utf8', stdio: 'pipe' }) } catch(e) { return e.stderr || e.message } },
+  read:  ({ path })         => readFileSync(path, 'utf8'),
+  write: ({ path, content }) => (writeFileSync(path, content), 'ok'),
 };
 
 const mkp = (...keys) => ({
@@ -43,8 +40,7 @@ async function run(msgs) {
     msgs.push(msg);
     if (!msg.tool_calls) return msg.content;
     for (const t of msg.tool_calls) {
-      const { name } = t.function;
-      const args = JSON.parse(t.function.arguments);
+      const { name } = t.function, args = JSON.parse(t.function.arguments);
       console.log(dim(`⟡ ${name}(${JSON.stringify(args)})`));
       const out = String(tools[name](args));
       console.log(dim(out.length > 200 ? out.slice(0, 200) + '…' : out));
