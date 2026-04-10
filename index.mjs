@@ -17,26 +17,20 @@ const defs = [
   { name: 'write', description: 'write a file', parameters: mkp('path', 'content') },
 ].map(f => ({ type: 'function', function: f }));
 
-const dim = s => `\x1b[90m${s}\x1b[0m`;
-const model = process.env.MODEL || 'gpt-4o';
-const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
-
 async function run(msgs) {
   while (true) {
-    const r = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const base = (process.env.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
+    const r = await fetch(`${base}/v1/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({ model, messages: msgs, tools: defs }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: process.env.MODEL || 'gpt-4o', messages: msgs, tools: defs }),
     }).then(r => r.json());
     const msg = r.choices?.[0]?.message;
     if (!msg) throw new Error(JSON.stringify(r));
     msgs.push(msg);
     if (!msg.tool_calls) return msg.content;
     for (const t of msg.tool_calls) {
-      const { name } = t.function, args = JSON.parse(t.function.arguments);
+      const { name } = t.function, args = JSON.parse(t.function.arguments), dim = s => `\x1b[90m${s}\x1b[0m`;
       console.log(dim(`⟡ ${name}(${JSON.stringify(args)})`));
       const out = String(tools[name](args));
       console.log(dim(out.length > 200 ? out.slice(0, 200) + '…' : out));
