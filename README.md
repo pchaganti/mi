@@ -6,4 +6,5 @@
 
 ```
 OPENAI_API_KEY=sk-... node index.mjs
+MODEL=gpt-4o-mini OPENAI_API_KEY=sk-... node index.mjs
 ```
