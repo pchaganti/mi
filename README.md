@@ -1,6 +1,6 @@
 # mi
 
-30 lines. Agentic REPL. Bash + file tools. OpenAI-compatible.
+30 lines. agentic repl. bash + fs. openai wire protocol.
 
 ```
 OPENAI_API_KEY=sk-... node index.mjs
