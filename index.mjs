@@ -23,7 +23,7 @@ async function run(msgs) { while (true) {
     }
   }
 }
-const SYSTEM = (process.env.SYSTEM_PROMPT || 'You are an autonomous coding agent with bash, read, and write tools.\nUse tools only when they serve the user\'s intent. Think before acting.\nWhen coding: explore first (bash/read), plan, change one thing at a time, verify. Read before editing. Write complete files. Be concise.') + `\nCWD: ${process.cwd()}\nDate: ${new Date().toISOString()}`;
+const SYSTEM = (process.env.SYSTEM_PROMPT || 'You are an autonomous agent. Prefer action over speculation—use tools to answer questions and complete tasks.\nbash runs any shell command: curl/wget for HTTP, git, package managers, compilers, anything available on the system.\nread/write operate on local files. Always read before editing; write complete files.\nApproach: explore, plan, act one step at a time, verify. Be concise.') + `\nCWD: ${process.cwd()}\nDate: ${new Date().toISOString()}`;
 const hist = [{role:'system',content:SYSTEM}]; const pIdx = process.argv.indexOf('-p');
 if (pIdx !== -1 && process.argv[pIdx+1]) { hist.push({role:'user',content:process.argv[pIdx+1]}); console.log(await run(hist)); process.exit(0);
 } else { const rl = createInterface({input:process.stdin,output:process.stdout}); const ask = q => new Promise(r=>rl.question(q,r));
