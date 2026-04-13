@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { createInterface } from 'readline'; import { execSync } from 'child_process'; import { readFileSync, writeFileSync } from 'fs';
+import { createInterface } from 'readline'; import { spawn } from 'child_process'; import { readFileSync, writeFileSync } from 'fs';
 const tools = {
-  bash:  ({cmd})          => { try { return execSync(cmd,{encoding:'utf8',stdio:'pipe'}) } catch(e) { return e.stderr||e.message } },
+  bash: ({command})=>new Promise(r=>{const c=spawn('bash',['-c',command],{stdio:['ignore','pipe','pipe'],detached:true});let o='';c.stdout.on('data',d=>o+=d);c.stderr.on('data',d=>o+=d);const h=()=>{try{process.kill(-c.pid)}catch(e){}};process.on('SIGINT',h);c.on('exit',()=>{process.off('SIGINT',h);r(o)})}),
   read:  ({path})         => readFileSync(path,'utf8'),
   write: ({path,content}) => (writeFileSync(path,content),'ok'),
 };
 const mkp = (...keys) => ({type:'object',properties:Object.fromEntries(keys.map(k=>[k,{type:'string'}])),required:keys});
-const defs = [{name:'bash',description:'run bash cmd',parameters:mkp('cmd')},{name:'read',description:'read a file',parameters:mkp('path')},
+const defs = [{name:'bash',description:'run bash cmd',parameters:mkp('command')},{name:'read',description:'read a file',parameters:mkp('path')},
   {name:'write',description:'write a file',parameters:mkp('path','content')}].map(f=>({type:'function',function:f}));
 async function run(msgs) { while (true) {
     const base = (process.env.OPENAI_BASE_URL||'https://api.openai.com').replace(/\/+$/,'');
@@ -18,7 +18,7 @@ async function run(msgs) { while (true) {
     for (const t of msg.tool_calls) {
       const {name}=t.function, args=JSON.parse(t.function.arguments), dim=s=>`\x1b[90m${s}\x1b[0m`;
       console.log(dim(`⟡ ${name}(${JSON.stringify(args)})`));
-      const out=String(tools[name](args)); console.log(dim(out.length>200?out.slice(0,200)+'…':out));
+      const out=String(await tools[name](args)); console.log(dim(out.length>200?out.slice(0,200)+'…':out));
       msgs.push({role:'tool',tool_call_id:t.id,content:out});
     }
   }
