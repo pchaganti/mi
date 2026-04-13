@@ -59,7 +59,7 @@ const tools = {
 };
 ```
 
-`bash` gives the agent access to the entire system — git, curl, compilers, package managers. `read` and `write` handle files. every tool returns a string because that's what goes back into the conversation.
+`bash` gives the agent access to the entire system: git, curl, compilers, package managers. `read` and `write` handle files. every tool returns a string because that's what goes back into the conversation.
 
 ### tool definitions
 
@@ -73,11 +73,11 @@ const defs = [
 ].map(f => ({ type: 'function', function: f }));
 ```
 
-`mkp` is a helper that builds a json schema object from a list of key names — each key becomes a required string property. the `defs` array is sent along with every api call so the model knows what it can do.
+`mkp` is a helper that builds a json schema object from a list of key names. each key becomes a required string property. the `defs` array is sent along with every api call so the model knows what it can do.
 
 ### messages
 
-the conversation is a flat array of message objects. each message has a `role` — `system`, `user`, `assistant`, or `tool` — and `content`. this array is the agent's entire memory:
+the conversation is a flat array of message objects. each message has a `role` (`system`, `user`, `assistant`, or `tool`) and `content`. this array is the agent's entire memory:
 
 ```js
 const hist = [{ role: 'system', content: SYSTEM }];
@@ -121,7 +121,7 @@ async function run(msgs) {
 }
 ```
 
-the loop exits only when the model decides it has enough information to respond directly. the model might call tools once or twenty times — it drives its own execution. this is what makes it *agentic*: the llm decides when it's done, not the code.
+the loop exits only when the model decides it has enough information to respond directly. the model might call tools once or twenty times, it drives its own execution. this is what makes it *agentic*: the llm decides when it's done, not the code.
 
 ### tool execution
 
@@ -136,7 +136,7 @@ for (const t of msg.tool_calls) {
 }
 ```
 
-each tool result is tagged with the `tool_call_id` so the model knows which call it corresponds to. after all tool results are pushed, the loop goes back to the top and calls the llm again — now with the tool outputs in context.
+each tool result is tagged with the `tool_call_id` so the model knows which call it corresponds to. after all tool results are pushed, the loop goes back to the top and calls the llm again, now with the tool outputs in context.
 
 ### the repl
 
@@ -152,7 +152,7 @@ while (true) {
 }
 ```
 
-there's also a one-shot mode (`-p 'prompt'`) that skips the repl and exits after a single run. both modes use the same `run()` function — the agentic loop doesn't care where the prompt came from.
+there's also a one-shot mode (`-p 'prompt'`) that skips the repl and exits after a single run. both modes use the same `run()` function. the agentic loop doesn't care where the prompt came from.
 
 ### putting it together
 
