@@ -1,6 +1,6 @@
 {
   "name": "@avcodes/mi",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "agentic coding in 30 loc. a loop, three tools, and an llm.",
   "type": "module",
   "bin": {
@@ -9,7 +9,15 @@
   "files": [
     "index.mjs"
   ],
-  "keywords": ["ai", "agent", "coding-agent", "llm", "repl", "cli", "openai"],
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "llm",
+    "repl",
+    "cli",
+    "openai"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
