@@ -17,12 +17,9 @@ jobs:
       
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
           scope: '@avcodes'
-          
-      - name: Update npm to support OIDC tokenless publishing
-        run: npm install -g npm@latest
           
       - run: npm install
       
