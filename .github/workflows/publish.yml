@@ -3,7 +3,6 @@ name: Publish to npm
 on:
   release:
     types: [created]
-  # also allow manual triggers
   workflow_dispatch:
 
 jobs:
@@ -11,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # required for npm provenance
+      id-token: write # required for tokenless OIDC publishing
 
     steps:
       - uses: actions/checkout@v4
@@ -24,5 +23,3 @@ jobs:
       - run: npm ci
       
       - run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
