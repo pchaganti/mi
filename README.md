@@ -29,11 +29,17 @@ mi
 ## usage
 
 ```sh
-# interactive repl
+# interactive repl (type /reset to clear history)
 OPENAI_API_KEY=sk-... mi
 
 # one-shot (run once, exit)
 mi -p 'refactor auth.js to use bcrypt'
+
+# load additional context from a file
+mi -f error.log -p 'why is this crashing?'
+
+# pipe stdin to the agent
+echo "write a python script that prints hello world" | mi
 
 # local models via any openai-compatible api
 MODEL=qwen3.5:4b OPENAI_BASE_URL=http://localhost:33821 mi
@@ -61,10 +67,11 @@ const tools = {
   bash: ({ command }) => execShell(command),    // run any shell command
   read:  ({ path }) => readFileSync(path, 'utf8'),  // read a file
   write: ({ path, content }) => (writeFileSync(path, content), 'ok'), // write a file
+  skill: ({ name }) => loadSkillMarkdown(name), // load agent skill from ~/.agents/skills/
 };
 ```
 
-`bash` gives the agent access to the entire system: git, curl, compilers, package managers. `read` and `write` handle files. every tool returns a string because that's what goes back into the conversation.
+`bash` gives the agent access to the entire system: git, curl, compilers, package managers. `read` and `write` handle files. `skill` gives the agent specialized workflows. every tool returns a string because that's what goes back into the conversation.
 
 ### tool definitions
 
