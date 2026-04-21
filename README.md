@@ -7,7 +7,7 @@ agentic coding in 30 loc. a loop, four tools, and an llm.
 ## features
 
 - `bash` (optional `timeout=<ms>` kills after delay, `bg=truthy` detaches and returns pid+log), `read`, `write`, and `skill` tools
-- `skill` tool loads agent skills from `~/.agents/skills/`
+- `skill` tool loads `SKILL.md` playbooks from `~/.agents/skills/` (descriptions auto-advertised in system prompt so the model matches tasks to skills)
 - accepts stdin via pipes (e.g. `echo "do this" | mi`)
 - file context ingestion via `-f <file>` argument
 - automatic ingestion of `AGENTS.md` if it exists in current directory

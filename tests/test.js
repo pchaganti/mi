@@ -304,7 +304,7 @@ test('AGENTS.md context', async () => {
   }
 });
 
-import { mkdirSync, rmdirSync } from 'node:fs';
+import { mkdirSync, rmdirSync, rmSync } from 'node:fs';
 
 test('skill tool', async () => {
   const mockHome = join(__dirname, 'mock_home');
@@ -353,6 +353,266 @@ test('skill tool', async () => {
   rmdirSync(join(mockHome, '.agents', 'skills'));
   rmdirSync(join(mockHome, '.agents'));
   rmdirSync(mockHome);
+});
+
+test('skill tool: list all skills as - name: description bullets', async () => {
+  const mockHome = join(__dirname, 'mock_home_list');
+  const skillsRoot = join(mockHome, '.agents', 'skills');
+  mkdirSync(join(skillsRoot, 'alpha'), { recursive: true });
+  mkdirSync(join(skillsRoot, 'beta'), { recursive: true });
+  writeFileSync(join(skillsRoot, 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: first skill\n---\nbody A');
+  writeFileSync(join(skillsRoot, 'beta', 'SKILL.md'), '---\nname: beta\ndescription: second skill\n---\nbody B');
+
+  let callCount = 0;
+  let toolResult = null;
+  requestHandler = (req, res, body) => {
+    callCount++;
+    if (callCount === 1) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call_list',
+              type: 'function',
+              function: { name: 'skill', arguments: JSON.stringify({}) }
+            }]
+          }
+        }]
+      }));
+    } else {
+      toolResult = body.messages[body.messages.length - 1].content;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'list done' } }]
+      }));
+    }
+  };
+
+  try {
+    const result = await runMi(['-p', 'list skills'], { HOME: mockHome });
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /list done/);
+
+    const lines = toolResult.split('\n').sort();
+    assert.deepStrictEqual(lines, ['- alpha: first skill', '- beta: second skill']);
+  } finally {
+    rmSync(mockHome, { recursive: true, force: true });
+  }
+});
+
+test('skill tool: loads from local ./skills/ directory', async () => {
+  const repoRoot = join(__dirname, '..');
+  const localSkill = join(repoRoot, 'skills', 'local_only');
+  mkdirSync(localSkill, { recursive: true });
+  writeFileSync(join(localSkill, 'SKILL.md'), 'local_skill_body_789');
+
+  let callCount = 0;
+  requestHandler = (req, res, body) => {
+    callCount++;
+    if (callCount === 1) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call_local',
+              type: 'function',
+              function: { name: 'skill', arguments: JSON.stringify({ name: 'local_only' }) }
+            }]
+          }
+        }]
+      }));
+    } else {
+      const lastMsg = body.messages[body.messages.length - 1];
+      assert.strictEqual(lastMsg.role, 'tool');
+      assert.strictEqual(lastMsg.content, 'local_skill_body_789');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'local skill loaded' } }]
+      }));
+    }
+  };
+
+  try {
+    const result = await runMi(['-p', 'use local skill']);
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /local skill loaded/);
+  } finally {
+    rmSync(join(repoRoot, 'skills'), { recursive: true, force: true });
+  }
+});
+
+test('skill tool: local skill takes precedence over global', async () => {
+  const repoRoot = join(__dirname, '..');
+  const mockHome = join(__dirname, 'mock_home_precedence');
+  const localSkill = join(repoRoot, 'skills', 'shared');
+  const globalSkill = join(mockHome, '.agents', 'skills', 'shared');
+  mkdirSync(localSkill, { recursive: true });
+  mkdirSync(globalSkill, { recursive: true });
+  writeFileSync(join(localSkill, 'SKILL.md'), 'LOCAL_VERSION');
+  writeFileSync(join(globalSkill, 'SKILL.md'), 'GLOBAL_VERSION');
+
+  let callCount = 0;
+  requestHandler = (req, res, body) => {
+    callCount++;
+    if (callCount === 1) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call_pref',
+              type: 'function',
+              function: { name: 'skill', arguments: JSON.stringify({ name: 'shared' }) }
+            }]
+          }
+        }]
+      }));
+    } else {
+      const lastMsg = body.messages[body.messages.length - 1];
+      assert.strictEqual(lastMsg.role, 'tool');
+      assert.strictEqual(lastMsg.content, 'LOCAL_VERSION');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'precedence ok' } }]
+      }));
+    }
+  };
+
+  try {
+    const result = await runMi(['-p', 'load shared skill'], { HOME: mockHome });
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /precedence ok/);
+  } finally {
+    rmSync(join(repoRoot, 'skills'), { recursive: true, force: true });
+    rmSync(mockHome, { recursive: true, force: true });
+  }
+});
+
+test('skill tool: frontmatter parsing with directory-name fallback', async () => {
+  const mockHome = join(__dirname, 'mock_home_fm');
+  const skillsRoot = join(mockHome, '.agents', 'skills');
+  mkdirSync(join(skillsRoot, 'no_name_skill'), { recursive: true });
+  mkdirSync(join(skillsRoot, 'no_frontmatter'), { recursive: true });
+  writeFileSync(join(skillsRoot, 'no_name_skill', 'SKILL.md'), '---\ndescription: has desc but no name field\n---\nbody');
+  writeFileSync(join(skillsRoot, 'no_frontmatter', 'SKILL.md'), 'just a body with no frontmatter');
+
+  let callCount = 0;
+  let toolResult = null;
+  requestHandler = (req, res, body) => {
+    callCount++;
+    if (callCount === 1) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call_fm',
+              type: 'function',
+              function: { name: 'skill', arguments: JSON.stringify({}) }
+            }]
+          }
+        }]
+      }));
+    } else {
+      toolResult = body.messages[body.messages.length - 1].content;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'fm ok' } }]
+      }));
+    }
+  };
+
+  try {
+    const result = await runMi(['-p', 'list for frontmatter'], { HOME: mockHome });
+    assert.strictEqual(result.status, 0);
+    const lines = toolResult.split('\n').sort();
+    assert.deepStrictEqual(lines, [
+      '- no_frontmatter: ',
+      '- no_name_skill: has desc but no name field'
+    ]);
+  } finally {
+    rmSync(mockHome, { recursive: true, force: true });
+  }
+});
+
+test('skill tool: listing filters out dirs without SKILL.md', async () => {
+  const mockHome = join(__dirname, 'mock_home_filter');
+  const skillsRoot = join(mockHome, '.agents', 'skills');
+  mkdirSync(join(skillsRoot, 'valid'), { recursive: true });
+  mkdirSync(join(skillsRoot, 'not_a_skill'), { recursive: true });
+  writeFileSync(join(skillsRoot, 'valid', 'SKILL.md'), 'valid body');
+  writeFileSync(join(skillsRoot, 'not_a_skill', 'README.md'), 'no SKILL.md here');
+
+  let callCount = 0;
+  let toolResult = null;
+  requestHandler = (req, res, body) => {
+    callCount++;
+    if (callCount === 1) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call_filter',
+              type: 'function',
+              function: { name: 'skill', arguments: JSON.stringify({}) }
+            }]
+          }
+        }]
+      }));
+    } else {
+      toolResult = body.messages[body.messages.length - 1].content;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: 'filter ok' } }]
+      }));
+    }
+  };
+
+  try {
+    const result = await runMi(['-p', 'list with invalid dir'], { HOME: mockHome });
+    assert.strictEqual(result.status, 0);
+    const lines = toolResult.split('\n').filter(Boolean);
+    assert.ok(lines.some(l => l.startsWith('- valid:')));
+    assert.ok(!lines.some(l => l.includes('not_a_skill')));
+  } finally {
+    rmSync(mockHome, { recursive: true, force: true });
+  }
+});
+
+test('skill tool: skills advertised in system prompt at startup', async () => {
+  const mockHome = join(__dirname, 'mock_home_startup');
+  const skillsRoot = join(mockHome, '.agents', 'skills');
+  mkdirSync(join(skillsRoot, 'advertised'), { recursive: true });
+  writeFileSync(
+    join(skillsRoot, 'advertised', 'SKILL.md'),
+    '---\nname: advertised\ndescription: should appear in system prompt\n---\nbody'
+  );
+
+  requestHandler = (req, res, body) => {
+    const sysMsg = body.messages[0].content;
+    assert.match(sysMsg, /Skill descriptions:/);
+    assert.match(sysMsg, /- advertised: should appear in system prompt/);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: 'advertised ok' } }]
+    }));
+  };
+
+  try {
+    const result = await runMi(['-p', 'check startup advertisement'], { HOME: mockHome });
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /advertised ok/);
+  } finally {
+    rmSync(mockHome, { recursive: true, force: true });
+  }
 });
 
 test('REPL mode and /reset', async () => {

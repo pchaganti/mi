@@ -5,7 +5,7 @@
  * fs to read/write files, and os to get the home directory. Exit with an error
  * if OPENAI_API_KEY is missing and -h was not passed.
  */
-import { createInterface } from 'readline'; import { spawn } from 'child_process'; import { readFileSync, writeFileSync, existsSync } from 'fs'; import { homedir } from 'os'; if (!process.env.OPENAI_API_KEY && !process.argv.includes('-h')) { console.error('OPENAI_API_KEY required'); process.exit(1); }
+import { createInterface } from 'readline'; import { spawn } from 'child_process'; import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs'; import { homedir } from 'os'; const DIR = new URL('.', import.meta.url).pathname; if (!process.env.OPENAI_API_KEY && !process.argv.includes('-h')) { console.error('OPENAI_API_KEY required'); process.exit(1); }
 
 /* Tools the agent can invoke. */
 const tools = {
@@ -28,13 +28,14 @@ const tools = {
   /* Write content to a file; return 'ok'. */
   write: ({path,content}) => (writeFileSync(path, content), 'ok'),
 
-  /* Load a skill's SKILL.md from ~/.agents/skills/<name>/. */
-  skill: ({name})         => readFileSync(`${process.env.HOME || homedir()}/.agents/skills/${name}/SKILL.md`, 'utf8')
+  /* Load a skill's SKILL.md by name, or list available skills as `- name: description` bullets parsed from YAML frontmatter. */
+  skill: ({name}) => name ? loadSkill(name) : listSkills().join('\n'),
 
-}; const makeParams = (...keys) => ({ type: 'object', properties: Object.fromEntries(keys.map(k => [k.replace('?',''), { type: 'string' }])), required: keys.filter(k => !k.startsWith('?')) });
+}; const meta = s => ({ name: s.match(/^name:\s*(.+)$/m)?.[1], description: s.match(/^description:\s*(.+)$/m)?.[1] || '' }), skillDirs = () => [`${DIR}skills/`, `${process.env.HOME || homedir()}/.agents/skills/`];
+const listSkills = () => skillDirs().flatMap(dir => existsSync(dir) ? readdirSync(dir).filter(d => existsSync(dir+d+'/SKILL.md')).map(d => { const {name,description} = meta(readFileSync(dir+d+'/SKILL.md','utf8')); return `- ${name||d}: ${description}`; }) : []), loadSkill = n => { for (const d of skillDirs()) if (existsSync(d+n+'/SKILL.md')) return readFileSync(d+n+'/SKILL.md','utf8'); }, makeParams = (...keys) => ({ type: 'object', properties: Object.fromEntries(keys.map(k => [k.replace('?',''), { type: 'string' }])), required: keys.filter(k => !k.startsWith('?')) });
 
 /* Tool definitions formatted for the OpenAI API. */
-const toolsDef = [{ name: 'bash', description: 'run bash cmd; timeout=ms kills after delay, bg=truthy runs detached returning pid+log', parameters: makeParams('command', '?timeout', '?bg') }, { name: 'read', description: 'read a file', parameters: makeParams('path') }, { name: 'write', description: 'write a file', parameters: makeParams('path', 'content') }, { name: 'skill', description: 'load skill', parameters: makeParams('name') }].map(func => ({ type: 'function', function: func }));
+const toolsDef = [{ name: 'bash', description: 'run bash cmd; timeout=ms kills after delay, bg=truthy runs detached returning pid+log', parameters: makeParams('command', '?timeout', '?bg') }, { name: 'read', description: 'read a file', parameters: makeParams('path') }, { name: 'write', description: 'write a file', parameters: makeParams('path', 'content') }, { name: 'skill', description: 'load a skill\'s SKILL.md body by name', parameters: makeParams('?name') }].map(func => ({ type: 'function', function: func }));
 
 /*
  * Call the chat API in a loop, executing tool calls, until the model
@@ -43,13 +44,10 @@ const toolsDef = [{ name: 'bash', description: 'run bash cmd; timeout=ms kills a
 async function run(messages) { while (true) {
 
   /* POST to the completions endpoint; parse the JSON response. */
-  const response = await fetch(`${(process.env.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '')}/v1/chat/completions`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify({ model: process.env.MODEL || 'gpt-5.4', messages, tools: toolsDef }) }).then(res => res.json());
+  const response = await fetch(`${(process.env.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '')}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify({ model: process.env.MODEL || 'gpt-5.4', messages, tools: toolsDef }) }).then(res => res.json());
 
-  /* Throw on API error; return text content once no tool calls remain. */
-  if (response.error) throw new Error(response.error.message || JSON.stringify(response.error)); const message = response.choices?.[0]?.message; if (!message) throw new Error(JSON.stringify(response));
-
-  messages.push(message); if (!message.tool_calls) return message.content;
+  /* Throw on API error; push the message, return content once no tool calls remain. */
+  if (response.error) throw new Error(response.error.message || JSON.stringify(response.error)); const message = response.choices?.[0]?.message; if (!message) throw new Error(JSON.stringify(response)); messages.push(message); if (!message.tool_calls) return message.content;
 
   for (const toolCall of message.tool_calls) {
     const {name} = toolCall.function, args = JSON.parse(toolCall.function.arguments), formatDim = str => `\x1b[90m${str}\x1b[0m`;
@@ -61,15 +59,15 @@ async function run(messages) { while (true) {
   } } }
 
 /* System prompt: built-in instructions plus current directory and date. */
-const SYSTEM = (process.env.SYSTEM_PROMPT || 'You are an autonomous agent. Prefer action over speculation—use tools to answer questions and complete tasks.\nbash runs any shell command: curl/wget for HTTP, git, package managers, compilers, anything available on the system.\nread/write operate on local files. Always read before editing; write complete files.\nApproach: explore, plan, act one step at a time, verify. Be concise.') + `\nCWD: ${process.cwd()}\nDate: ${new Date().toISOString()}`;
+const SYSTEM = (process.env.SYSTEM_PROMPT || 'You are an autonomous agent. Prefer action over speculation—use tools to answer questions and complete tasks.\nA skill is a SKILL.md file containing a procedure for a particular kind of task, paired with a one-line description of when it applies. The skill tool loads a skill\'s body by name.\nWhen handling a request, compare it against each skill description listed below. If a description covers what the user is asking for, call skill(name) to load that skill and follow its body as your plan.\nbash runs any shell command: curl/wget for HTTP, git, package managers, compilers, anything available on the system.\nread/write operate on local files. Always read before editing; write complete files.\nApproach: explore, plan, act one step at a time, verify. Be concise.') + `\nCWD: ${process.cwd()}\nDate: ${new Date().toISOString()}`;
 
 /* History seeded with the system prompt; getArg reads a named CLI flag. */
 const history = [{ role: 'system', content: SYSTEM }], getArg = key => (idx => idx >= 0 && process.argv[idx + 1])(process.argv.indexOf(key));
 
 if (process.argv.includes('-h')) { console.log('usage: mi [-p prompt] [-f file] [-h]\n  pipe: echo "..." | mi    repl: /reset clears history\nenv: OPENAI_API_KEY, MODEL, OPENAI_BASE_URL, SYSTEM_PROMPT\nbash tool args: timeout=<ms> kills after delay · bg=truthy detaches and returns pid+log'); process.exit(0); }
 
-/* Prepend -f file and AGENTS.md (if present) to the system message. */
-const fileArg = getArg('-f'); if (fileArg) history[0].content += `\n\nFile (${fileArg}):\n` + readFileSync(fileArg, 'utf8'); if (existsSync('AGENTS.md')) history[0].content += '\n' + readFileSync('AGENTS.md', 'utf8');
+/* Prepend -f file, AGENTS.md, and the skills index (if present) to the system message. */
+const fileArg = getArg('-f'); if (fileArg) history[0].content += `\n\nFile (${fileArg}):\n` + readFileSync(fileArg, 'utf8'); if (existsSync('AGENTS.md')) history[0].content += '\n' + readFileSync('AGENTS.md', 'utf8'); const sl = listSkills(); if (sl.length) history[0].content += '\n\nSkill descriptions:\n' + sl.join('\n');
 
 if (getArg('-p')) { history.push({ role: 'user', content: getArg('-p') }); console.log(await run(history)); process.exit(0); }
 
