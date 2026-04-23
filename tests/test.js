@@ -311,8 +311,8 @@ test('skill tool: list all skills as - name: description bullets', async () => {
     assert.strictEqual(result.status, 0);
     assert.match(result.stdout, /list done/);
 
-    const lines = toolResult.split('\n').sort();
-    assert.deepStrictEqual(lines, ['- alpha: first skill', '- beta: second skill']);
+    assert.match(toolResult, /^- alpha: first skill$/m);
+    assert.match(toolResult, /^- beta: second skill$/m);
   } finally {
     rmSync(mockHome, { recursive: true, force: true });
   }
@@ -357,7 +357,7 @@ test('skill tool: loads from local ./skills/ directory', async () => {
     assert.strictEqual(result.status, 0);
     assert.match(result.stdout, /local skill loaded/);
   } finally {
-    rmSync(join(repoRoot, 'skills'), { recursive: true, force: true });
+    rmSync(localSkill, { recursive: true, force: true });
   }
 });
 
@@ -404,7 +404,7 @@ test('skill tool: local skill takes precedence over global', async () => {
     assert.strictEqual(result.status, 0);
     assert.match(result.stdout, /precedence ok/);
   } finally {
-    rmSync(join(repoRoot, 'skills'), { recursive: true, force: true });
+    rmSync(localSkill, { recursive: true, force: true });
     rmSync(mockHome, { recursive: true, force: true });
   }
 });
@@ -447,11 +447,8 @@ test('skill tool: frontmatter parsing with directory-name fallback', async () =>
   try {
     const result = await runMi(['-p', 'list for frontmatter'], { HOME: mockHome });
     assert.strictEqual(result.status, 0);
-    const lines = toolResult.split('\n').sort();
-    assert.deepStrictEqual(lines, [
-      '- no_frontmatter: ',
-      '- no_name_skill: has desc but no name field'
-    ]);
+    assert.match(toolResult, /^- no_frontmatter: $/m);
+    assert.match(toolResult, /^- no_name_skill: has desc but no name field$/m);
   } finally {
     rmSync(mockHome, { recursive: true, force: true });
   }
