@@ -28,6 +28,14 @@ Do not propose a fix before step 1 completes. A bug you cannot reproduce is a bu
 
 5. **Verify the fix.** The repro now passes AND nothing else broke. Before declaring done, call `skill("verify")` and follow its body for the broader check (lint, typecheck, full test suite). Do not proceed without loading it. Keep the repro script or test committed where useful — it's a regression guard.
 
+6. **Add tests if requested.** If the original prompt included "add tests" or "write tests", the fix is confirmed — now call `skill("tdd")` and follow its body to structure the test-writing phase. Do not write tests inline without loading it.
+
+**Writing or rewriting multi-line files.** Do not use `echo "...\n..."` (no real newlines without `-e`) and do not use `sed` to insert multi-line blocks (sed runs idempotency is hard to control and duplicates lines on retry). Use one of these instead:
+- Heredoc (preferred): `cat > file.py <<'EOF'\n...\nEOF`
+- Python write: `python3 -c "open('file.py','w').write('''...\n...\n''')"`
+
+If the file already exists and you are patching one line, `sed -i 's/old/new/'` is fine. For anything involving indented blocks, write the whole file fresh.
+
 **Red flags — stop and ask the user:**
 - The repro requires production credentials, a live third-party service, or a database you cannot reset.
 - More than three hypotheses have been tested and all were wrong (you are missing context).

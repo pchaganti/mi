@@ -34,6 +34,12 @@ For each new behavior, run the loop below exactly once. Do not queue up multiple
    - Re-run the same subset. Still green, or revert the refactor.
    - For significant structural changes (rename across many callsites, extract to a new module, split a large class), call `skill("refactor")` and follow its body — it handles callsite sweeps and the green gate properly.
 
+**Writing or rewriting multi-line files.** Do not use `echo "...\n..."` (no real newlines without `-e`) and do not use `sed` to insert multi-line blocks (sed idempotency is hard to control and duplicates lines on retry). Use one of these instead:
+- Heredoc (preferred): `cat > file.py <<'EOF'\n...\nEOF`
+- Python write: `python3 -c "open('file.py','w').write('''...\n...\n''')"`
+
+If the file already exists and you are patching one line, `sed -i 's/old/new/'` is fine. For anything involving indented blocks, write the whole file fresh.
+
 **Common anti-patterns to avoid:**
 - Writing multiple failing tests before any green (defeats the feedback loop).
 - Asserting on internal state or mocks when the public contract is testable.
