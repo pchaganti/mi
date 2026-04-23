@@ -14,16 +14,20 @@ The subprocess inherits `OPENAI_API_KEY`, `MODEL`, `OPENAI_BASE_URL` and has no 
 - Constraints (what not to touch, style, scope limits)
 - Expected output format (e.g. "print a bulleted list of file:line references", "write results to /tmp/mi-<task>.out and print its path")
 
-**PATH note:** When spawning subagents from within an mi session, the bare `mi` command is unlikely to be in PATH. Use the full invocation instead:
+**PATH note:** When spawning subagents from within an mi session, the bare `mi` command is unlikely to be in PATH. Use `MI_PATH` — the harness exports it automatically so subagents inherit it:
 ```
-node /home/everlier/code/mi/index.mjs -p '<prompt>'
+node "$MI_PATH" -p '<prompt>'
 ```
-If the repo location may vary, resolve it first: `which mi 2>/dev/null || echo /home/everlier/code/mi/index.mjs`
+If `MI_PATH` is somehow unset (e.g. a subagent launched outside mi), resolve it:
+```
+MI_PATH=${MI_PATH:-$(which mi 2>/dev/null || echo /path/to/index.mjs)}
+node "$MI_PATH" -p '<prompt>'
+```
 
 Sequential (one task, wait for result):
 
 ```
-node /home/everlier/code/mi/index.mjs -p 'Read /abs/path/foo.py and list every function that touches the database. Print one per line as file:line name.'
+node "$MI_PATH" -p 'Read /abs/path/foo.py and list every function that touches the database. Print one per line as file:line name.'
 ```
 
 stdout becomes the tool result. Use `timeout=` on the bash call if the task could hang.
@@ -31,8 +35,8 @@ stdout becomes the tool result. Use `timeout=` on the bash call if the task coul
 Parallel (multiple independent tasks):
 
 ```
-node /home/everlier/code/mi/index.mjs -p '<prompt A>'   # with bg=truthy -> pid:A log:/tmp/mi-A.log
-node /home/everlier/code/mi/index.mjs -p '<prompt B>'   # with bg=truthy -> pid:B log:/tmp/mi-B.log
+node "$MI_PATH" -p '<prompt A>'   # with bg=truthy -> pid:A log:/tmp/mi-A.log
+node "$MI_PATH" -p '<prompt B>'   # with bg=truthy -> pid:B log:/tmp/mi-B.log
 ```
 
 Collect each `pid` and `log`. Background children are detached (the harness calls `unref`) so `wait` will not find them — poll with `kill -0 <pid> 2>/dev/null` instead (exit 0 = still running, exit 1 = finished).
