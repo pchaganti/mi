@@ -9,7 +9,19 @@ Question-driven, not map-driven. If the user's request is "describe this repo" r
 
 2. Identify candidate clusters. Breadth first: `ls -la` the repo root, read the package manifest (`package.json` / `pyproject.toml` / `Cargo.toml` / `go.mod` / etc.) for entry points, then run a single keyword grep — `grep -rli '<term>' <top-level dirs>` — to list candidate files without opening them. Pick 2–5 plausible clusters where the answer could live. If it's obvious (single file, single function), skip delegation and read it directly.
 
-3. Spawn one subagent per cluster via `mi -p '<prompt>'` with `bg=truthy` — the harness returns `pid:X log:/tmp/mi-X.log` and detaches the child; do NOT append `&`. Each prompt must include: the question verbatim, the absolute paths in scope, instruction NOT to recurse outside those paths, and the summary-file path.
+3. Spawn one subagent per cluster via `mi -p '<prompt>'` with `bg=truthy` — the harness returns `pid:X log:/tmp/mi-X.log` and detaches the child; do NOT append `&`. Use this prompt template for each subagent:
+
+   ```
+   Question: <the sharpened question, verbatim>
+   Scope: <absolute paths in this cluster only>
+   Do NOT read files outside the scope above.
+   Write your findings to /tmp/mi-explore-<cluster>.md using this exact format:
+   STATUS: complete | partial | blocked
+   SCOPE: <paths you actually read>
+   ANSWER: <1-3 sentences, no file:line refs here>
+   CITATIONS: <path/to/file.ext:<line> — <quoted excerpt>, one per line>
+   FOLLOW_UPS: <paths outside scope worth checking next, if any>
+   ```
 
 4. Summary contract — every subagent writes `/tmp/mi-explore-<cluster>.md` with exactly these fields:
    - `STATUS:` `complete` | `partial` | `blocked`
@@ -18,6 +30,6 @@ Question-driven, not map-driven. If the user's request is "describe this repo" r
    - `CITATIONS:` one `path/to/file.ext:<line> — <quoted line or excerpt>` per claim in `ANSWER`
    - `FOLLOW_UPS:` paths outside the cluster that should be checked next, if any
 
-5. Poll with `kill -0 <pid> 2>/dev/null` (exit 0 = still running, 1 = done); do not `sleep`-poll and do not `wait`. Read each summary. Compose the final answer by stitching cluster-local `ANSWER`s together. The final output MUST include every `file:line` from every subagent's `CITATIONS` block — one per line, verbatim, in the output format the user requested. If you find yourself summarizing, deduping, or compressing `CITATIONS`, stop and list them explicitly. If every subagent returned `not found here`, either the question was mis-scoped or the cluster partition missed the right directory — say so plainly rather than invent an answer.
+5. While subagents run, draft FOLLOW_UPS you'll pursue if clusters return "not found here". Check completion with `kill -0 <pid> 2>/dev/null` (exit 0 = still running, exit 1 = done) — do NOT use `wait` (detached children are unreachable by `wait`). Once a pid exits, `cat /tmp/mi-explore-<cluster>.md` to read the result. Compose the final answer by stitching cluster-local `ANSWER`s together. The final output MUST include every `file:line` from every subagent's `CITATIONS` block — one per line, verbatim. If you find yourself summarizing or compressing `CITATIONS`, stop and list them explicitly instead. If every subagent returned `not found here`, say so plainly — either the question was mis-scoped or the cluster partition missed the right directory.
 
 On a single-GPU local endpoint subagents serialize at the model server — this pattern saves context, not wall-clock. On a hosted endpoint the fan-out is genuinely parallel.
