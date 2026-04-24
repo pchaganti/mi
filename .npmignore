@@ -11,3 +11,8 @@ AGENTS.md
 
 # ci
 .github/
+
+# editor & tool state
+.claude/
+.ruff_cache/
+.gitignore

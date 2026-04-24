@@ -14,13 +14,8 @@ The subprocess inherits `OPENAI_API_KEY`, `MODEL`, `OPENAI_BASE_URL` and has no 
 - Constraints (what not to touch, style, scope limits)
 - Expected output format (e.g. "print a bulleted list of file:line references", "write results to /tmp/mi-<task>.out and print its path")
 
-**PATH note:** When spawning subagents from within an mi session, the bare `mi` command is unlikely to be in PATH. Use `MI_PATH` — the harness exports it automatically so subagents inherit it:
+**Spawning subagents:** use `node "$MI_PATH"` — the harness sets `MI_PATH` automatically:
 ```
-node "$MI_PATH" -p '<prompt>'
-```
-If `MI_PATH` is somehow unset (e.g. a subagent launched outside mi), resolve it:
-```
-MI_PATH=${MI_PATH:-$(which mi 2>/dev/null || echo /path/to/index.mjs)}
 node "$MI_PATH" -p '<prompt>'
 ```
 
