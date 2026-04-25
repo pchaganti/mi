@@ -2,17 +2,18 @@
 
 https://github.com/user-attachments/assets/9289d105-5a40-442d-b1b5-773723c95c13
 
-agentic coding in 27 loc. a loop, two tools, and an llm.
+agentic coding in 29 loc. a loop, two tools, and an llm.
 
 ## features
 
-- `bash` (optional `timeout=<ms>` kills after delay, `bg=truthy` detaches and returns pid+log) and `skill` tools — file I/O goes through `bash` (`cat`, `sed -i`, heredocs)
+- streaming: assistant tokens stream to stdout as they arrive (SSE), no waiting for the full reply
+- `bash` (optional `timeout=<ms>` kills after delay, `bg=truthy` detaches and returns pid+log) and `skill` tools; file I/O goes through `bash` (`cat`, `sed -i`, heredocs)
 - `skill` tool loads `SKILL.md` playbooks from bundled `skills/` and `~/.agents/skills/` (descriptions auto-advertised in system prompt so the model matches tasks to skills)
 - bundled skills: `plan`, `tasks`, `delegate`, `verify`, `debug`, `tdd`
 - accepts stdin via pipes (e.g. `echo "do this" | mi`)
 - file context ingestion via `-f <file>` argument
 - automatic ingestion of `AGENTS.md` if it exists in current directory
-- chat REPL by default with interactive `/reset` command to clear history
+- chat REPL by default with version banner, interactive `/reset` command, and error recovery (failed requests pop the user message instead of crashing)
 - graceful `SIGINT` (Ctrl+C) handling for bash child processes
 - non-interactive mode with `-p 'prompt'` arg
 
@@ -50,7 +51,7 @@ MODEL=qwen3.5:4b OPENAI_BASE_URL=http://localhost:33821 mi
 
 | var | default | what |
 |-----|---------|------|
-| `OPENAI_API_KEY` | — | api key |
+| `OPENAI_API_KEY` | (none) | api key |
 | `OPENAI_BASE_URL` | `https://api.openai.com` | api base url (ollama, lmstudio, litellm, etc) |
 | `MODEL` | `gpt-5.4` | model name |
 | `SYSTEM_PROMPT` | built-in agent prompt | override the system prompt entirely |
@@ -70,7 +71,7 @@ const tools = {
 };
 ```
 
-`bash` gives the agent access to the entire system: git, curl, compilers, package managers, and file I/O (via `cat`, `sed -n`, `sed -i`, heredocs — the system prompt teaches the patterns). optional `timeout=<ms>` kills the process after the given delay and resolves with `[timeout]`. optional `bg=truthy` runs the command detached and returns `pid:X log:/tmp/mi-*.log` immediately. `skill` gives the agent specialized workflows loaded on demand from markdown playbooks. every tool returns a string because that's what goes back into the conversation.
+`bash` gives the agent access to the entire system: git, curl, compilers, package managers, and file I/O (via `cat`, `sed -n`, `sed -i`, heredocs; the system prompt teaches the patterns). optional `timeout=<ms>` kills the process after the given delay and resolves with `[timeout]`. optional `bg=truthy` runs the command detached and returns `pid:X log:/tmp/mi-*.log` immediately. `skill` gives the agent specialized workflows loaded on demand from markdown playbooks. every tool returns a string because that's what goes back into the conversation.
 
 ### tool definitions
 
@@ -103,18 +104,18 @@ the system message sets the agent's personality and context (working directory, 
 
 ### the api call
 
-each iteration makes a single call to the chat completions endpoint. the model receives the full message history and the tool definitions:
+each iteration makes a single call to the chat completions endpoint. the model receives the full message history and the tool definitions, and we ask for an SSE stream so tokens arrive incrementally:
 
 ```js
-const r = await fetch(`${base}/v1/chat/completions`, {
+const res = await fetch(`${base}/v1/chat/completions`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-  body: JSON.stringify({ model, messages: msgs, tools: defs }),
-}).then(r => r.json());
-const msg = r.choices[0].message;
+  body: JSON.stringify({ model, messages: msgs, tools: defs, stream: true }),
+});
+// iterate res.body, parse `data: {...}` events, accumulate deltas into one message
 ```
 
-the response message either has `content` (a text reply to the user) or `tool_calls` (the model wants to use tools). this is the decision point that drives the whole loop.
+the stream emits `delta` chunks: `delta.content` is partial text (write straight to stdout as it arrives), `delta.tool_calls[i]` are partial tool-call fragments (id/name first, then `arguments` in pieces; merge by `index`). once `[DONE]` arrives, the assembled message either has `content` (a text reply) or `tool_calls` (the model wants to use tools). this is the decision point that drives the whole loop.
 
 ### the agentic loop
 
@@ -123,15 +124,15 @@ this is the core of the harness. it's a `while (true)` that keeps calling the ll
 ```js
 async function run(msgs) {
   while (true) {
-    const msg = await callLLM(msgs);  // make the api call
-    msgs.push(msg);                   // add assistant response to history
-    if (!msg.tool_calls) return msg.content;  // no tools? we're done
+    const msg = await streamLLM(msgs);  // stream tokens to stdout, return assembled message
+    msgs.push(msg);                     // add assistant response to history
+    if (!msg.tool_calls) return;        // no tools? we're done (text already streamed)
     // otherwise, execute tools and continue...
   }
 }
 ```
 
-the loop exits only when the model decides it has enough information to respond directly. the model might call tools once or twenty times, it drives its own execution. this is what makes it *agentic*: the llm decides when it's done, not the code.
+the loop exits only when the model decides it has enough information to respond directly. the model might call tools once or twenty times, it drives its own execution. this is what makes it *agentic*: the llm decides when it's done, not the code. note that text content is written to stdout *during* the stream, so `run()` doesn't return it; the user already saw it.
 
 ### tool execution
 
@@ -150,19 +151,20 @@ each tool result is tagged with the `tool_call_id` so the model knows which call
 
 ### the repl
 
-the outer shell is a simple read-eval-print loop. it reads user input, pushes it as a user message, calls `run()`, and prints the result:
+the outer shell is a simple read-eval-print loop. it reads user input, pushes it as a user message, and calls `run()`, which streams the response to stdout itself:
 
 ```js
 while (true) {
   const input = await ask('\n> ');
   if (input.trim()) {
     hist.push({ role: 'user', content: input });
-    console.log(await run(hist));
+    try { await run(hist); }
+    catch (e) { console.error('✗ ' + e.message); hist.pop(); }
   }
 }
 ```
 
-there's also a one-shot mode (`-p 'prompt'`) that skips the repl and exits after a single run. both modes use the same `run()` function. the agentic loop doesn't care where the prompt came from.
+there's also a one-shot mode (`-p 'prompt'`) that skips the repl and exits after a single run. both modes use the same `run()` function. streaming works the same way; tokens just go to a piped stdout instead of a terminal. the agentic loop doesn't care where the prompt came from.
 
 ### putting it together
 
