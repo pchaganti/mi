@@ -9,7 +9,7 @@ agentic coding in 29 loc. a loop, two tools, and an llm.
 - streaming: assistant tokens stream to stdout as they arrive (SSE), no waiting for the full reply
 - `bash` (optional `timeout=<ms>` kills after delay, `bg=truthy` detaches and returns pid+log) and `skill` tools; file I/O goes through `bash` (`cat`, `sed -i`, heredocs)
 - `skill` tool loads `SKILL.md` playbooks from bundled `skills/` and `~/.agents/skills/` (descriptions auto-advertised in system prompt so the model matches tasks to skills)
-- bundled skills: `plan`, `tasks`, `delegate`, `verify`, `debug`, `tdd`
+- bundled skills: `plan`, `tasks`, `delegate`, `explore`, `refactor`, `review`, `verify`, `debug`, `tdd`, `new-skill`, `self`
 - accepts stdin via pipes (e.g. `echo "do this" | mi`)
 - file context ingestion via `-f <file>` argument
 - automatic ingestion of `AGENTS.md` if it exists in current directory
