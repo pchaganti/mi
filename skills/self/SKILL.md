@@ -39,3 +39,24 @@ The harness sets `MI_PATH` to the running `index.mjs` at startup. From it you ca
 2. Make the change in-place; do not add new lines unless unavoidable. Prefer extending existing template literals, chaining expressions, or merging declarations.
 3. Verify with `cd $(dirname $MI_PATH) && npm run lines` — line count should not regress.
 4. Smoke-test with `node $MI_PATH -h` (loads the module without needing an API key).
+
+## Writing new tools
+
+Tools live in `$(dirname $MI_PATH)/tools/<name>.mjs`. The harness auto-discovers all `.mjs` files at startup. Each tool module must default-export an object with:
+
+```js
+export default {
+  name: 'toolname',           // tool name for LLM to call
+  description: '...',         // shown to LLM in tool list
+  parameters: {               // JSON Schema for arguments
+    type: 'object',
+    properties: { arg: { type: 'string' } },
+    required: ['arg']
+  },
+  handler: async ({arg}) => { // receives parsed args, returns string
+    return 'result';
+  }
+};
+```
+
+The harness pre-imports common Node modules as globals: `spawn`, `readFileSync`, `existsSync`, `readdirSync`, `homedir`. Use these directly without importing. The handler must return a string (tool results go back into conversation). For async work, return a Promise that resolves to a string.
