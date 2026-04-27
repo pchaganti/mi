@@ -67,3 +67,22 @@ Tools are code — they give you new capabilities. Skills are markdown — they 
 4. Test by asking for the tool to be used.
 
 Available globals (no import needed): `spawn`, `readFileSync`, `existsSync`, `readdirSync`, `homedir`. Handler must return a string. For reference, read existing tools: `cat $(dirname $MI_PATH)/tools/*.mjs`.
+
+### Example: recursive mi tool
+
+A tool that spawns mi as a sub-agent:
+
+```js
+export default {
+  name: 'delegate',
+  description: 'Run a subtask in a separate mi instance',
+  parameters: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] },
+  handler: ({task}) => new Promise(resolve => {
+    const child = spawn('mi', ['-p', task], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = ''; child.stdout.on('data', d => out += d); child.stderr.on('data', d => out += d);
+    child.on('exit', () => resolve(out));
+  })
+};
+```
+
+The sub-agent inherits env vars (`OPENAI_API_KEY`, `MODEL`) and runs independently with its own context.
