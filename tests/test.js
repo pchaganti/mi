@@ -662,3 +662,43 @@ test('bash tool bg', async () => {
   assert.strictEqual(result.status, 0);
   assert.match(result.stdout, /bg works/);
 });
+
+test('-h help flag', async () => {
+  // Run with -h flag, which should NOT require OPENAI_API_KEY
+  const result = await new Promise((resolve) => {
+    const child = spawn('node', [INDEX_PATH, '-h'], {
+      env: {
+        ...process.env,
+        OPENAI_API_KEY: undefined,  // Explicitly unset
+        OPENAI_BASE_URL: undefined
+      }
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => stdout += d.toString());
+    child.stderr.on('data', d => stderr += d.toString());
+
+    child.on('close', code => {
+      resolve({ status: code, stdout, stderr });
+    });
+  });
+
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /usage: mi/);
+  assert.match(result.stdout, /\-p prompt/);
+  assert.match(result.stdout, /\-f file/);
+  assert.match(result.stdout, /OPENAI_API_KEY/);
+});
+
+test('HTTP error handling', async () => {
+  requestHandler = (req, res, body) => {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'Invalid API key provided' } }));
+  };
+
+  const result = await runMi(['-p', 'trigger error']);
+  // Process should exit with non-zero due to uncaught error
+  assert.notStrictEqual(result.status, 0);
+  assert.match(result.stderr, /Invalid API key provided/);
+});
