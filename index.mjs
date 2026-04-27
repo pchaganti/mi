@@ -11,7 +11,7 @@ import { createInterface } from 'readline'; import { spawn } from 'child_process
 const tools = {
 
   /* Run a command in a detached bash shell; resolve with combined output. */
-  bash: ({command,timeout,bg}) => { if (bg) { const log=`/tmp/mi-${Date.now()}.log`; const c=spawn('bash',['-c',`${command} >${log} 2>&1`],{stdio:'ignore',detached:true}); c.unref(); return `pid:${c.pid} log:${log}`; } return new Promise(resolve => { const child = spawn('bash', ['-c', command], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  bash: ({command,timeout,bg}) => { if (bg) { const log=`/tmp/mi-${Date.now()}.log`; const proc=spawn('bash',['-c',`${command} >${log} 2>&1`],{stdio:'ignore',detached:true}); proc.unref(); return `pid:${proc.pid} log:${log}`; } return new Promise(resolve => { const child = spawn('bash', ['-c', command], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 
     /* Collect stdout and stderr into a single string. */
     let output = ''; child.stdout.on('data', data => output += data); child.stderr.on('data', data => output += data);
@@ -63,7 +63,7 @@ const history = [{ role: 'system', content: SYSTEM }], getArg = key => (idx => i
 if (process.argv.includes('-h')) { console.log('usage: mi [-p prompt] [-f file] [-h]\n  pipe: echo "..." | mi    repl: /reset clears history\nenv: OPENAI_API_KEY, MODEL, OPENAI_BASE_URL, SYSTEM_PROMPT\nbash tool args: timeout=<ms> kills after delay · bg=truthy detaches and returns pid+log'); process.exit(0); }
 
 /* Prepend -f file, AGENTS.md, and the skills index (if present) to the system message. */
-const fileArg = getArg('-f'); if (fileArg) history[0].content += `\n\nFile (${fileArg}):\n` + readFileSync(fileArg, 'utf8'); if (existsSync('AGENTS.md')) history[0].content += '\n' + readFileSync('AGENTS.md', 'utf8'); const sl = listSkills(); if (sl.length) history[0].content += '\n\nSkill descriptions:\n' + sl.join('\n');
+const fileArg = getArg('-f'); if (fileArg) history[0].content += `\n\nFile (${fileArg}):\n` + readFileSync(fileArg, 'utf8'); if (existsSync('AGENTS.md')) history[0].content += '\n' + readFileSync('AGENTS.md', 'utf8'); const skills = listSkills(); if (skills.length) history[0].content += '\n\nSkill descriptions:\n' + skills.join('\n');
 
 if (getArg('-p')) { history.push({ role: 'user', content: getArg('-p') }); await run(history); process.exit(0); }
 
