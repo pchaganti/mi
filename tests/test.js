@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import * as http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, symlinkSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(__dirname, '../index.mjs');
@@ -1496,4 +1496,78 @@ test('very long input in one-shot mode (10KB+)', async () => {
   assert.ok(receivedPrompt?.startsWith(prefix), 'Prompt should start with prefix marker');
   assert.ok(receivedPrompt?.endsWith(suffix), 'Prompt should end with suffix marker');
   assert.strictEqual(receivedPrompt, longPrompt, 'Full prompt should match exactly');
+});
+
+test('skill tool: symlinked SKILL.md file is followed and loaded correctly', async () => {
+  // Test that a SKILL.md that is a symlink to another file is resolved correctly
+  // readFileSync follows symlinks by default, so this should work transparently
+  // This exercises the code path where existsSync and readFileSync follow symlinks
+  const { mockHome, skillsRoot, cleanup } = createMockSkillHome('symlink_skill');
+
+  // Create the target file with the actual skill content
+  const targetFile = join(skillsRoot, 'target_content.md');
+  const skillContent = '---\nname: symlinked_skill\ndescription: loaded via symlink\n---\nSymlinked skill body content';
+  writeFileSync(targetFile, skillContent);
+
+  // Create skill directory with SKILL.md as a symlink to the target
+  const skillDir = join(skillsRoot, 'symlinked');
+  mkdirSync(skillDir, { recursive: true });
+  symlinkSync(targetFile, join(skillDir, 'SKILL.md'));
+
+  // First test: listSkills should see the symlinked skill and read content through the symlink
+  let listCallCount = 0;
+  let listToolResult = null;
+  requestHandler = (req, res, body) => {
+    listCallCount++;
+    if (listCallCount === 1) {
+      sse(res, {
+        role: 'assistant',
+        tool_calls: [{
+          id: 'call_list_symlink',
+          type: 'function',
+          function: { name: 'skill', arguments: JSON.stringify({}) }
+        }]
+      });
+    } else {
+      listToolResult = body.messages[body.messages.length - 1].content;
+      sse(res, { role: 'assistant', content: 'list symlink skill ok' });
+    }
+  };
+
+  try {
+    const listResult = await runMi(['-p', 'list skills with symlink'], { HOME: mockHome });
+    assert.strictEqual(listResult.status, 0, 'Should not crash when listing skills with symlinked SKILL.md');
+    assert.match(listResult.stdout, /list symlink skill ok/);
+    // Symlinked SKILL.md should be read through the symlink, extracting name and description
+    assert.match(listToolResult, /^- symlinked_skill: loaded via symlink$/m,
+      'Symlinked skill should have name and description parsed from target file');
+
+    // Second test: loadSkill should follow the symlink and return the target file content
+    let loadCallCount = 0;
+    let loadToolResult = null;
+    requestHandler = (req, res, body) => {
+      loadCallCount++;
+      if (loadCallCount === 1) {
+        sse(res, {
+          role: 'assistant',
+          tool_calls: [{
+            id: 'call_load_symlink',
+            type: 'function',
+            function: { name: 'skill', arguments: JSON.stringify({ name: 'symlinked' }) }
+          }]
+        });
+      } else {
+        loadToolResult = body.messages[body.messages.length - 1].content;
+        sse(res, { role: 'assistant', content: 'load symlink skill ok' });
+      }
+    };
+
+    const loadResult = await runMi(['-p', 'load symlinked skill'], { HOME: mockHome });
+    assert.strictEqual(loadResult.status, 0, 'Should not crash when loading symlinked SKILL.md');
+    assert.match(loadResult.stdout, /load symlink skill ok/);
+    // readFileSync follows symlinks, so the full target content should be returned
+    assert.strictEqual(loadToolResult, skillContent, 'Loading symlinked SKILL.md should return target file content');
+  } finally {
+    cleanup();
+  }
 });
