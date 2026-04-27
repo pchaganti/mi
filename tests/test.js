@@ -703,6 +703,35 @@ test('HTTP error handling', async () => {
   assert.match(result.stderr, /Invalid API key provided/);
 });
 
+test('SSE stream error handling', async () => {
+  // Test the code path where the SSE stream itself contains an error payload
+  // This is different from HTTP errors - the connection succeeds but the stream contains an error event
+  requestHandler = (req, res, body) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    // Send an error payload in the SSE stream (line 45: if (json.error) throw new Error(...))
+    res.write(`data: ${JSON.stringify({ error: { message: 'Rate limit exceeded' } })}\n\n`);
+    res.end();
+  };
+
+  const result = await runMi(['-p', 'trigger stream error']);
+  assert.notStrictEqual(result.status, 0);
+  assert.match(result.stderr, /Rate limit exceeded/);
+});
+
+test('SSE stream error without message field', async () => {
+  // Test the fallback to JSON.stringify when error has no message field
+  requestHandler = (req, res, body) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write(`data: ${JSON.stringify({ error: { code: 'context_length_exceeded', type: 'invalid_request' } })}\n\n`);
+    res.end();
+  };
+
+  const result = await runMi(['-p', 'trigger error without message']);
+  assert.notStrictEqual(result.status, 0);
+  // Should contain stringified error object since no message field exists
+  assert.match(result.stderr, /context_length_exceeded/);
+});
+
 test('tool call output truncation', async () => {
   // Generate output longer than 200 chars to trigger truncation
   // Use a unique marker at the start and end to verify truncation
