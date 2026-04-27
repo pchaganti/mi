@@ -1075,3 +1075,74 @@ test('Unicode and special characters in streamed content', async () => {
   assert.ok(result.stdout.includes('é'), 'Should contain e-acute');
   assert.ok(result.stdout.includes('☃'), 'Should contain snowman symbol');
 });
+
+test('REPL empty input skips API call', async () => {
+  // Test the if (input.trim()) check on line 75 - empty prompts should not trigger API calls
+  // Empty string, whitespace-only input should be skipped and re-prompt immediately
+  let requestCount = 0;
+  requestHandler = (req, res, body) => {
+    requestCount++;
+    sse(res, { role: 'assistant', content: `response ${requestCount}` });
+  };
+
+  const result = await new Promise((resolve) => {
+    const child = spawn('node', ['-e', `process.stdin.isTTY = true; import(${JSON.stringify(INDEX_PATH)})`], {
+      env: {
+        ...process.env,
+        OPENAI_BASE_URL: serverUrl,
+        OPENAI_API_KEY: 'test-key',
+        http_proxy: '',
+        https_proxy: '',
+        HTTP_PROXY: '',
+        HTTPS_PROXY: ''
+      }
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let step = 0;
+
+    child.stdout.on('data', d => {
+      const out = d.toString();
+      stdout += out;
+
+      if (out.includes('> ')) {
+        if (step === 0) {
+          step++;
+          // Send empty input (just newline)
+          child.stdin.write('\n');
+        } else if (step === 1) {
+          step++;
+          // Send whitespace-only input
+          child.stdin.write('   \n');
+        } else if (step === 2) {
+          step++;
+          // Send tabs-only input
+          child.stdin.write('\t\t\n');
+        } else if (step === 3) {
+          step++;
+          // Now send actual input to verify API still works
+          child.stdin.write('real message\n');
+        }
+      }
+
+      if (stdout.includes('response 1')) {
+        child.stdin.end();
+      }
+    });
+    child.stderr.on('data', d => stderr += d.toString());
+
+    child.on('close', code => {
+      resolve({ status: code, stdout, stderr, requestCount });
+    });
+  });
+
+  assert.strictEqual(result.status, 0);
+  // Verify we only made ONE API request (for "real message"), not 4
+  assert.strictEqual(requestCount, 1, 'Should only make 1 API call, empty inputs should be skipped');
+  // Verify the actual message was processed
+  assert.match(result.stdout, /response 1/, 'Should receive response for real message');
+  // No separator line should appear for empty inputs (only for real input)
+  const separatorCount = (result.stdout.match(/─────/g) || []).length;
+  assert.strictEqual(separatorCount, 1, 'Should only show 1 separator line (for the real message)');
+});
