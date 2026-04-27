@@ -89,6 +89,24 @@ function runMi(args, env = {}, input = '') {
   });
 }
 
+// Helper: create a mock HOME directory with skill structure
+// Returns { mockHome, skillsRoot, createSkill, cleanup } where createSkill(name, content) creates a skill
+function createMockSkillHome(suffix) {
+  const mockHome = join(__dirname, `mock_home_${suffix}`);
+  const skillsRoot = join(mockHome, '.agents', 'skills');
+  mkdirSync(skillsRoot, { recursive: true });
+  return {
+    mockHome,
+    skillsRoot,
+    createSkill: (name, content) => {
+      const dir = join(skillsRoot, name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'SKILL.md'), content);
+    },
+    cleanup: () => rmSync(mockHome, { recursive: true, force: true })
+  };
+}
+
 // Helper: spawn a REPL mode child process with stdin.isTTY = true
 // Returns { child, stdout, stderr, waitForClose } where stdout/stderr are getter functions
 // and waitForClose returns a promise that resolves when child exits
@@ -243,10 +261,8 @@ test('AGENTS.md context', async () => {
 import { mkdirSync, rmdirSync, rmSync } from 'node:fs';
 
 test('skill tool', async () => {
-  const mockHome = join(__dirname, 'mock_home');
-  const skillDir = join(mockHome, '.agents', 'skills', 'dummy_skill');
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), 'dummy_skill_content_abc');
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('basic');
+  createSkill('dummy_skill', 'dummy_skill_content_abc');
 
   let callCount = 0;
   requestHandler = (req, res, body) => {
@@ -268,25 +284,20 @@ test('skill tool', async () => {
     }
   };
 
-  const result = await runMi(['-p', 'use skill'], { HOME: mockHome });
-  if (result.status !== 0) console.error('SKILL stderr:', result.stderr);
-  assert.strictEqual(result.status, 0);
-  assert.match(result.stdout, /skill checked/);
-
-  unlinkSync(join(skillDir, 'SKILL.md'));
-  rmdirSync(skillDir);
-  rmdirSync(join(mockHome, '.agents', 'skills'));
-  rmdirSync(join(mockHome, '.agents'));
-  rmdirSync(mockHome);
+  try {
+    const result = await runMi(['-p', 'use skill'], { HOME: mockHome });
+    if (result.status !== 0) console.error('SKILL stderr:', result.stderr);
+    assert.strictEqual(result.status, 0);
+    assert.match(result.stdout, /skill checked/);
+  } finally {
+    cleanup();
+  }
 });
 
 test('skill tool: list all skills as - name: description bullets', async () => {
-  const mockHome = join(__dirname, 'mock_home_list');
-  const skillsRoot = join(mockHome, '.agents', 'skills');
-  mkdirSync(join(skillsRoot, 'alpha'), { recursive: true });
-  mkdirSync(join(skillsRoot, 'beta'), { recursive: true });
-  writeFileSync(join(skillsRoot, 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: first skill\n---\nbody A');
-  writeFileSync(join(skillsRoot, 'beta', 'SKILL.md'), '---\nname: beta\ndescription: second skill\n---\nbody B');
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('list');
+  createSkill('alpha', '---\nname: alpha\ndescription: first skill\n---\nbody A');
+  createSkill('beta', '---\nname: beta\ndescription: second skill\n---\nbody B');
 
   let callCount = 0;
   let toolResult = null;
@@ -315,7 +326,7 @@ test('skill tool: list all skills as - name: description bullets', async () => {
     assert.match(toolResult, /^- alpha: first skill$/m);
     assert.match(toolResult, /^- beta: second skill$/m);
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
@@ -356,13 +367,11 @@ test('skill tool: loads from local ./skills/ directory', async () => {
 
 test('skill tool: local skill takes precedence over global', async () => {
   const repoRoot = join(__dirname, '..');
-  const mockHome = join(__dirname, 'mock_home_precedence');
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('precedence');
   const localSkill = join(repoRoot, 'skills', 'shared');
-  const globalSkill = join(mockHome, '.agents', 'skills', 'shared');
   mkdirSync(localSkill, { recursive: true });
-  mkdirSync(globalSkill, { recursive: true });
   writeFileSync(join(localSkill, 'SKILL.md'), 'LOCAL_VERSION');
-  writeFileSync(join(globalSkill, 'SKILL.md'), 'GLOBAL_VERSION');
+  createSkill('shared', 'GLOBAL_VERSION');
 
   let callCount = 0;
   requestHandler = (req, res, body) => {
@@ -390,17 +399,14 @@ test('skill tool: local skill takes precedence over global', async () => {
     assert.match(result.stdout, /precedence ok/);
   } finally {
     rmSync(localSkill, { recursive: true, force: true });
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
 test('skill tool: frontmatter parsing with directory-name fallback', async () => {
-  const mockHome = join(__dirname, 'mock_home_fm');
-  const skillsRoot = join(mockHome, '.agents', 'skills');
-  mkdirSync(join(skillsRoot, 'no_name_skill'), { recursive: true });
-  mkdirSync(join(skillsRoot, 'no_frontmatter'), { recursive: true });
-  writeFileSync(join(skillsRoot, 'no_name_skill', 'SKILL.md'), '---\ndescription: has desc but no name field\n---\nbody');
-  writeFileSync(join(skillsRoot, 'no_frontmatter', 'SKILL.md'), 'just a body with no frontmatter');
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('fm');
+  createSkill('no_name_skill', '---\ndescription: has desc but no name field\n---\nbody');
+  createSkill('no_frontmatter', 'just a body with no frontmatter');
 
   let callCount = 0;
   let toolResult = null;
@@ -427,16 +433,15 @@ test('skill tool: frontmatter parsing with directory-name fallback', async () =>
     assert.match(toolResult, /^- no_frontmatter: $/m);
     assert.match(toolResult, /^- no_name_skill: has desc but no name field$/m);
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
 test('skill tool: listing filters out dirs without SKILL.md', async () => {
-  const mockHome = join(__dirname, 'mock_home_filter');
-  const skillsRoot = join(mockHome, '.agents', 'skills');
-  mkdirSync(join(skillsRoot, 'valid'), { recursive: true });
+  const { mockHome, skillsRoot, createSkill, cleanup } = createMockSkillHome('filter');
+  createSkill('valid', 'valid body');
+  // Create a directory without SKILL.md (just a README)
   mkdirSync(join(skillsRoot, 'not_a_skill'), { recursive: true });
-  writeFileSync(join(skillsRoot, 'valid', 'SKILL.md'), 'valid body');
   writeFileSync(join(skillsRoot, 'not_a_skill', 'README.md'), 'no SKILL.md here');
 
   let callCount = 0;
@@ -465,18 +470,13 @@ test('skill tool: listing filters out dirs without SKILL.md', async () => {
     assert.ok(lines.some(l => l.startsWith('- valid:')));
     assert.ok(!lines.some(l => l.includes('not_a_skill')));
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
 test('skill tool: skills advertised in system prompt at startup', async () => {
-  const mockHome = join(__dirname, 'mock_home_startup');
-  const skillsRoot = join(mockHome, '.agents', 'skills');
-  mkdirSync(join(skillsRoot, 'advertised'), { recursive: true });
-  writeFileSync(
-    join(skillsRoot, 'advertised', 'SKILL.md'),
-    '---\nname: advertised\ndescription: should appear in system prompt\n---\nbody'
-  );
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('startup');
+  createSkill('advertised', '---\nname: advertised\ndescription: should appear in system prompt\n---\nbody');
 
   requestHandler = (req, res, body) => {
     const sysMsg = body.messages[0].content;
@@ -490,7 +490,7 @@ test('skill tool: skills advertised in system prompt at startup', async () => {
     assert.strictEqual(result.status, 0);
     assert.match(result.stdout, /advertised ok/);
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
@@ -1162,6 +1162,9 @@ test('tool output truncation boundary: exactly 201 chars IS truncated', async ()
 test('loadSkill returns undefined for nonexistent skill', async () => {
   // Test that calling skill tool with a name that doesn't exist returns undefined
   // which gets stringified to "undefined" when sent back as tool result
+  const { mockHome, cleanup } = createMockSkillHome('missing');
+  // No skills created - just empty .agents/skills directory
+
   let callCount = 0;
   let toolResult = null;
   requestHandler = (req, res, body) => {
@@ -1181,10 +1184,6 @@ test('loadSkill returns undefined for nonexistent skill', async () => {
     }
   };
 
-  // Use a mock HOME with empty .agents/skills to ensure the skill truly doesn't exist
-  const mockHome = join(__dirname, 'mock_home_missing');
-  mkdirSync(join(mockHome, '.agents', 'skills'), { recursive: true });
-
   try {
     const result = await runMi(['-p', 'load missing skill'], { HOME: mockHome });
     assert.strictEqual(result.status, 0);
@@ -1192,7 +1191,7 @@ test('loadSkill returns undefined for nonexistent skill', async () => {
     // loadSkill returns undefined for missing skill, String(undefined) = "undefined"
     assert.strictEqual(toolResult, 'undefined', 'Missing skill should return "undefined" string');
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
@@ -1293,10 +1292,8 @@ test('skill tool: empty SKILL.md file loads as empty string', async () => {
   // Test that a skill with an empty SKILL.md file (0 bytes) is handled gracefully
   // loadSkill returns readFileSync content, which is '' for empty file
   // listSkills uses meta() which handles empty string: name=undefined (falls back to dirName), description=''
-  const mockHome = join(__dirname, 'mock_home_empty_skill');
-  const skillDir = join(mockHome, '.agents', 'skills', 'empty_skill');
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), '');  // Empty file
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('empty_skill');
+  createSkill('empty_skill', '');  // Empty SKILL.md content
 
   // First test: listSkills should include empty skill with directory name as fallback
   let listCallCount = 0;
@@ -1352,7 +1349,7 @@ test('skill tool: empty SKILL.md file loads as empty string', async () => {
     // readFileSync returns '' for empty file, String('') = ''
     assert.strictEqual(loadToolResult, '', 'Loading empty SKILL.md should return empty string');
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
 
@@ -1362,15 +1359,9 @@ test('skill tool: malformed SKILL.md with broken frontmatter', async () => {
   // Cases tested:
   // 1. Unclosed frontmatter (--- at start, no closing ---)
   // 2. Invalid YAML syntax (missing colon)
-  const mockHome = join(__dirname, 'mock_home_malformed_skill');
-  const skillsRoot = join(mockHome, '.agents', 'skills');
-
-  // Create two different malformed SKILL.md files
-  mkdirSync(join(skillsRoot, 'unclosed_frontmatter'), { recursive: true });
-  writeFileSync(join(skillsRoot, 'unclosed_frontmatter', 'SKILL.md'), '---\nname: malformed_test_name\ndescription: unclosed_desc\nbody without closing delimiter');
-
-  mkdirSync(join(skillsRoot, 'invalid_yaml_xyz'), { recursive: true });
-  writeFileSync(join(skillsRoot, 'invalid_yaml_xyz', 'SKILL.md'), '---\nname test\ndescription no colon\n---\nbody');
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('malformed_skill');
+  createSkill('unclosed_frontmatter', '---\nname: malformed_test_name\ndescription: unclosed_desc\nbody without closing delimiter');
+  createSkill('invalid_yaml_xyz', '---\nname test\ndescription no colon\n---\nbody');
 
   let callCount = 0;
   let toolResult = null;
@@ -1406,6 +1397,6 @@ test('skill tool: malformed SKILL.md with broken frontmatter', async () => {
     assert.ok(toolResult.includes('- invalid_yaml_xyz:'),
       `Should fall back to dirName for invalid YAML syntax, got: ${toolResult}`);
   } finally {
-    rmSync(mockHome, { recursive: true, force: true });
+    cleanup();
   }
 });
