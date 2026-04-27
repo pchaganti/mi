@@ -1036,3 +1036,42 @@ test('streaming tool call argument fragments', async () => {
   assert.ok(receivedArgs?.includes('fragmented_arg_test'),
     `Tool should have received reassembled args with output containing "fragmented_arg_test", got: ${receivedArgs}`);
 });
+
+test('Unicode and special characters in streamed content', async () => {
+  // Test that TextDecoder correctly handles Unicode (emoji, CJK, special symbols)
+  // This exercises line 44-45: dec.decode(chunk, {stream:true})
+  // UTF-8 multi-byte characters can be split across chunks - TextDecoder handles this
+  const unicodeContent = 'Hello! Emoji: \u{1F600}\u{1F389}\u{1F680} CJK: 中文日本語 Korean: 한글 Special: éñüß☃❤↑';
+
+  requestHandler = (req, res, body) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    // Send Unicode content in multiple small chunks to stress TextDecoder
+    const chunks = [
+      'Hello! Emoji: ',
+      '\u{1F600}\u{1F389}',  // Two emoji (4-byte UTF-8 each)
+      '\u{1F680} CJK: ',     // Rocket emoji + text
+      '中文',        // Chinese characters (3-byte UTF-8 each)
+      '日本語',  // Japanese characters
+      ' Korean: 한글', // Korean characters
+      ' Special: éñüß', // Latin extended (2-byte UTF-8)
+      '☃❤↑'   // Symbols (snowman, heart, arrow)
+    ];
+    for (const chunk of chunks) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`);
+    }
+    res.write('data: [DONE]\n\n');
+    res.end();
+  };
+
+  const result = await runMi(['-p', 'test unicode']);
+  assert.strictEqual(result.status, 0, 'Should handle Unicode content successfully');
+  // Verify all Unicode characters appear correctly in output
+  assert.ok(result.stdout.includes('\u{1F600}'), 'Should contain grinning face emoji');
+  assert.ok(result.stdout.includes('\u{1F389}'), 'Should contain party popper emoji');
+  assert.ok(result.stdout.includes('\u{1F680}'), 'Should contain rocket emoji');
+  assert.ok(result.stdout.includes('中文'), 'Should contain Chinese characters');
+  assert.ok(result.stdout.includes('日本'), 'Should contain Japanese characters');
+  assert.ok(result.stdout.includes('한글'), 'Should contain Korean characters');
+  assert.ok(result.stdout.includes('é'), 'Should contain e-acute');
+  assert.ok(result.stdout.includes('☃'), 'Should contain snowman symbol');
+});
