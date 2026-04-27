@@ -1,35 +1,15 @@
 #!/usr/bin/env node
 
 /*
- * Import readline for interactive CLI input, child_process to spawn commands,
- * fs to read files, and os to get the home directory. Exit with an error
- * if OPENAI_API_KEY is missing and -h was not passed.
+ * Import readline for interactive CLI input, fs to read files. Set MI_DIR
+ * for tool modules to locate bundled assets. Exit if OPENAI_API_KEY missing.
  */
-import { createInterface } from 'readline'; import { spawn } from 'child_process'; import { readFileSync, existsSync, readdirSync } from 'fs'; import { homedir } from 'os'; const DIR = new URL('.', import.meta.url).pathname; process.env.MI_PATH = new URL(import.meta.url).pathname; if (!process.env.OPENAI_API_KEY && !process.argv.includes('-h')) { console.error('OPENAI_API_KEY required'); process.exit(1); }
+import { createInterface } from 'readline'; import { readFileSync, existsSync, readdirSync } from 'fs'; import { spawn } from 'child_process'; import { homedir } from 'os';
+Object.assign(global, { spawn, readFileSync, existsSync, readdirSync, homedir }); const DIR = new URL('.', import.meta.url).pathname; process.env.MI_DIR = DIR; process.env.MI_PATH = new URL(import.meta.url).pathname; if (!process.env.OPENAI_API_KEY && !process.argv.includes('-h')) { console.error('OPENAI_API_KEY required'); process.exit(1); }
 
-/* Tools the agent can invoke. */
-const tools = {
-
-  /* Run a command in a detached bash shell; resolve with combined output. */
-  bash: ({command,timeout,bg}) => { if (bg) { const log=`/tmp/mi-${Date.now()}.log`; const proc=spawn('bash',['-c',`${command} >${log} 2>&1`],{stdio:'ignore',detached:true}); proc.unref(); return `pid:${proc.pid} log:${log}`; } return new Promise(resolve => { const child = spawn('bash', ['-c', command], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-
-    /* Collect stdout and stderr into a single string. */
-    let output = ''; child.stdout.on('data', data => output += data); child.stderr.on('data', data => output += data);
-
-    /* Kill the process group on SIGINT; remove the listener on exit. */
-    const cleanup = () => { try { process.kill(-child.pid) } catch (err) {} }; process.on('SIGINT', cleanup); const timer = timeout ? setTimeout(() => { cleanup(); resolve(output+'\n[timeout]') }, +timeout) : null;
-
-    /* Resolve with collected output once the child process exits. */
-    child.on('exit', () => { process.off('SIGINT', cleanup); if (timer) clearTimeout(timer); resolve(output); }); }); },
-
-  /* Load a skill's SKILL.md by name, or list available skills as `- name: description` bullets parsed from YAML frontmatter. */
-  skill: ({name}) => name ? loadSkill(name) : listSkills().join('\n'),
-
-}; const meta = s => ({ name: s.match(/^name:\s*(.+)$/m)?.[1], description: s.match(/^description:\s*(.+)$/m)?.[1] || '' }), getSkillDirs = () => [`${DIR}skills/`, `${process.env.HOME || homedir()}/.agents/skills/`], dim = s => `\x1b[90m${s}\x1b[0m`;
-const listSkills = () => getSkillDirs().flatMap(dir => existsSync(dir) ? readdirSync(dir).filter(dirName => existsSync(dir+dirName+'/SKILL.md')).map(dirName => { const {name,description} = meta(readFileSync(dir+dirName+'/SKILL.md','utf8')); return `- ${name||dirName}: ${description}`; }) : []), loadSkill = name => { for (const dir of getSkillDirs()) if (existsSync(dir+name+'/SKILL.md')) return readFileSync(dir+name+'/SKILL.md','utf8'); }, makeParams = (...keys) => ({ type: 'object', properties: Object.fromEntries(keys.map(key => [key.replace('?',''), { type: 'string' }])), required: keys.filter(key => !key.startsWith('?')) });
-
-/* Tool definitions formatted for the OpenAI API. */
-const toolsDef = [{ name: 'bash', description: 'Runs in a detached process group. Returns combined stdout+stderr. Optional: timeout=ms kills after delay; bg=truthy fully detaches and returns pid + log file path.', parameters: makeParams('command', '?timeout', '?bg') }, { name: 'skill', description: 'With name: returns that skill\'s SKILL.md body. Without name: lists available skills with descriptions.', parameters: makeParams('?name') }].map(func => ({ type: 'function', function: func }));
+/* Discover and load tools from tools/ directory. Each module default-exports {name, description, parameters, handler}. */
+const toolMods = await Promise.all(readdirSync(DIR + 'tools').filter(f => f.endsWith('.mjs')).map(f => import(DIR + 'tools/' + f))), T = toolMods.map(m => m.default), dim = s => `\x1b[90m${s}\x1b[0m`, { listSkills } = toolMods.find(m => m.listSkills);
+const tools = Object.fromEntries(T.map(t => [t.name, t.handler])), toolsDef = T.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 
 /*
  * Call the chat API in a loop, executing tool calls, until the model

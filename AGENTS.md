@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Single-file ESM CLI: all logic lives in `index.mjs` (one dense file, ~27 meaningful lines). Bundled skills live in `skills/<name>/SKILL.md`.
+Single-file ESM CLI: all logic lives in `index.mjs`. Bundled skills live in `skills/<name>/SKILL.md`.
 No build step, no transpilation, no test suite, no lint config.
 
 `scripts/count-lines.mjs` is a dev utility — not part of the published package (`files` in `package.json` is `index.mjs` plus the `skills/` directory).
