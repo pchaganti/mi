@@ -1076,6 +1076,47 @@ test('Unicode and special characters in streamed content', async () => {
   assert.ok(result.stdout.includes('☃'), 'Should contain snowman symbol');
 });
 
+test('Unicode in bash tool arguments and output', async () => {
+  // Test that bash tool correctly handles Unicode in both the command arguments
+  // and in the output. This differs from the streaming content test - this tests
+  // the bash tool execution path where arguments are JSON parsed and output is captured.
+  const unicodeCommand = 'echo "Emoji: \u{1F600}\u{1F389} CJK: 中文 Korean: 한글 Special: éñüß"';
+  let callCount = 0;
+  let toolResult = null;
+  requestHandler = (req, res, body) => {
+    callCount++;
+    if (callCount === 1) {
+      sse(res, {
+        role: 'assistant',
+        tool_calls: [{
+          id: 'call_unicode',
+          type: 'function',
+          function: { name: 'bash', arguments: JSON.stringify({ command: unicodeCommand }) }
+        }]
+      });
+    } else {
+      const lastMsg = body.messages[body.messages.length - 1];
+      assert.strictEqual(lastMsg.role, 'tool');
+      toolResult = lastMsg.content;
+      sse(res, { role: 'assistant', content: 'unicode bash done' });
+    }
+  };
+
+  const result = await runMi(['-p', 'test unicode bash']);
+  assert.strictEqual(result.status, 0);
+  assert.match(result.stdout, /unicode bash done/);
+
+  // Verify Unicode characters are correctly preserved in bash tool output
+  assert.ok(toolResult.includes('\u{1F600}'), 'Tool result should contain grinning face emoji');
+  assert.ok(toolResult.includes('\u{1F389}'), 'Tool result should contain party popper emoji');
+  assert.ok(toolResult.includes('中文'), 'Tool result should contain Chinese characters');
+  assert.ok(toolResult.includes('한글'), 'Tool result should contain Korean characters');
+  assert.ok(toolResult.includes('é'), 'Tool result should contain e-acute');
+  assert.ok(toolResult.includes('ñ'), 'Tool result should contain n-tilde');
+  assert.ok(toolResult.includes('ü'), 'Tool result should contain u-umlaut');
+  assert.ok(toolResult.includes('ß'), 'Tool result should contain eszett');
+});
+
 test('REPL empty input skips API call', async () => {
   // Test the if (input.trim()) check on line 75 - empty prompts should not trigger API calls
   // Empty string, whitespace-only input should be skipped and re-prompt immediately
