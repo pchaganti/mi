@@ -1400,3 +1400,69 @@ test('skill tool: malformed SKILL.md with broken frontmatter', async () => {
     cleanup();
   }
 });
+
+test('skill tool: whitespace-only SKILL.md file loads as whitespace', async () => {
+  // Test that a skill with a whitespace-only SKILL.md file (spaces/tabs/newlines) is handled gracefully
+  // loadSkill returns readFileSync content, which is the whitespace for whitespace-only file
+  // listSkills uses meta() which won't find name/description (whitespace doesn't match regex)
+  // -> falls back to dirName with empty description
+  const { mockHome, createSkill, cleanup } = createMockSkillHome('whitespace_skill');
+  createSkill('whitespace_only', '   \n\t\n   \t\n');  // Only spaces, tabs, newlines
+
+  // First test: listSkills should include whitespace skill with directory name as fallback
+  let listCallCount = 0;
+  let listToolResult = null;
+  requestHandler = (req, res, body) => {
+    listCallCount++;
+    if (listCallCount === 1) {
+      sse(res, {
+        role: 'assistant',
+        tool_calls: [{
+          id: 'call_list_ws',
+          type: 'function',
+          function: { name: 'skill', arguments: JSON.stringify({}) }
+        }]
+      });
+    } else {
+      listToolResult = body.messages[body.messages.length - 1].content;
+      sse(res, { role: 'assistant', content: 'list whitespace skill ok' });
+    }
+  };
+
+  try {
+    const listResult = await runMi(['-p', 'list skills with whitespace'], { HOME: mockHome });
+    assert.strictEqual(listResult.status, 0, 'Should not crash when listing skills with whitespace-only SKILL.md');
+    assert.match(listResult.stdout, /list whitespace skill ok/);
+    // Whitespace SKILL.md: name regex returns undefined -> falls back to dirName "whitespace_only"
+    // description regex returns undefined -> falls back to ''
+    assert.match(listToolResult, /^- whitespace_only: $/m, 'Whitespace skill should use directory name and empty description');
+
+    // Second test: loadSkill should return the whitespace content for whitespace-only SKILL.md
+    let loadCallCount = 0;
+    let loadToolResult = null;
+    requestHandler = (req, res, body) => {
+      loadCallCount++;
+      if (loadCallCount === 1) {
+        sse(res, {
+          role: 'assistant',
+          tool_calls: [{
+            id: 'call_load_ws',
+            type: 'function',
+            function: { name: 'skill', arguments: JSON.stringify({ name: 'whitespace_only' }) }
+          }]
+        });
+      } else {
+        loadToolResult = body.messages[body.messages.length - 1].content;
+        sse(res, { role: 'assistant', content: 'load whitespace skill ok' });
+      }
+    };
+
+    const loadResult = await runMi(['-p', 'load whitespace skill'], { HOME: mockHome });
+    assert.strictEqual(loadResult.status, 0, 'Should not crash when loading whitespace-only SKILL.md');
+    assert.match(loadResult.stdout, /load whitespace skill ok/);
+    // readFileSync returns the whitespace content, String(whitespace) = whitespace
+    assert.strictEqual(loadToolResult, '   \n\t\n   \t\n', 'Loading whitespace-only SKILL.md should return whitespace content');
+  } finally {
+    cleanup();
+  }
+});
