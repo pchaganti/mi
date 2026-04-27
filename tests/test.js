@@ -732,6 +732,31 @@ test('SSE stream error without message field', async () => {
   assert.match(result.stderr, /context_length_exceeded/);
 });
 
+test('missing OPENAI_API_KEY exits with error', async () => {
+  // Run without OPENAI_API_KEY and without -h flag - should exit with error
+  const result = await new Promise((resolve) => {
+    const child = spawn('node', [INDEX_PATH, '-p', 'hello'], {
+      env: {
+        ...process.env,
+        OPENAI_API_KEY: undefined,  // Explicitly unset
+        OPENAI_BASE_URL: undefined
+      }
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => stdout += d.toString());
+    child.stderr.on('data', d => stderr += d.toString());
+
+    child.on('close', code => {
+      resolve({ status: code, stdout, stderr });
+    });
+  });
+
+  assert.strictEqual(result.status, 1, 'Should exit with code 1 when OPENAI_API_KEY is missing');
+  assert.match(result.stderr, /OPENAI_API_KEY required/);
+});
+
 test('tool call output truncation', async () => {
   // Generate output longer than 200 chars to trigger truncation
   // Use a unique marker at the start and end to verify truncation
