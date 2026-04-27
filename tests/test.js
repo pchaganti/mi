@@ -1294,3 +1294,96 @@ test('loadSkill returns undefined for nonexistent skill', async () => {
     rmSync(mockHome, { recursive: true, force: true });
   }
 });
+
+test('AGENTS.md edge case: empty file does not crash', async () => {
+  // Test that an empty AGENTS.md file (exists but has 0 bytes) is handled gracefully
+  // Line 66: if (existsSync('AGENTS.md')) history[0].content += '\n' + readFileSync('AGENTS.md', 'utf8');
+  // Empty file reads as empty string, so system prompt gets '\n' appended (harmless)
+  const agentsFile = join(process.cwd(), 'AGENTS.md');
+  const oldContent = existsSync(agentsFile) ? readFileSync(agentsFile, 'utf8') : null;
+  writeFileSync(agentsFile, '');  // Empty file
+
+  let capturedSysMsg = null;
+  requestHandler = (req, res, body) => {
+    capturedSysMsg = body.messages[0].content;
+    sse(res, { role: 'assistant', content: 'empty agents ok' });
+  };
+
+  try {
+    const result = await runMi(['-p', 'test empty agents']);
+    assert.strictEqual(result.status, 0, 'Should not crash with empty AGENTS.md');
+    assert.match(result.stdout, /empty agents ok/);
+    // System message should still be valid (ends with newline from empty AGENTS.md read)
+    assert.ok(capturedSysMsg.includes('CWD:'), 'System prompt should still contain CWD');
+    assert.ok(capturedSysMsg.includes('Date:'), 'System prompt should still contain Date');
+  } finally {
+    if (oldContent !== null) {
+      writeFileSync(agentsFile, oldContent);
+    } else {
+      unlinkSync(agentsFile);
+    }
+  }
+});
+
+test('AGENTS.md edge case: whitespace-only file', async () => {
+  // Test that an AGENTS.md file with only whitespace (spaces, tabs, newlines) is handled
+  // This tests that reading whitespace content doesn't cause issues in system prompt
+  const agentsFile = join(process.cwd(), 'AGENTS.md');
+  const oldContent = existsSync(agentsFile) ? readFileSync(agentsFile, 'utf8') : null;
+  writeFileSync(agentsFile, '   \n\t\n   \n');  // Only whitespace
+
+  let capturedSysMsg = null;
+  requestHandler = (req, res, body) => {
+    capturedSysMsg = body.messages[0].content;
+    sse(res, { role: 'assistant', content: 'whitespace agents ok' });
+  };
+
+  try {
+    const result = await runMi(['-p', 'test whitespace agents']);
+    assert.strictEqual(result.status, 0, 'Should not crash with whitespace-only AGENTS.md');
+    assert.match(result.stdout, /whitespace agents ok/);
+    // The whitespace gets appended to system prompt (no trimming is done)
+    assert.ok(capturedSysMsg.includes('CWD:'), 'System prompt should still contain CWD');
+    assert.ok(capturedSysMsg.includes('Date:'), 'System prompt should still contain Date');
+  } finally {
+    if (oldContent !== null) {
+      writeFileSync(agentsFile, oldContent);
+    } else {
+      unlinkSync(agentsFile);
+    }
+  }
+});
+
+test('AGENTS.md edge case: missing file does not crash', async () => {
+  // Test that a missing AGENTS.md file is handled gracefully
+  // Line 66 uses existsSync check before reading, so missing file should be skipped
+  const agentsFile = join(process.cwd(), 'AGENTS.md');
+  const oldContent = existsSync(agentsFile) ? readFileSync(agentsFile, 'utf8') : null;
+
+  // Ensure AGENTS.md does not exist
+  if (existsSync(agentsFile)) unlinkSync(agentsFile);
+
+  let capturedSysMsg = null;
+  requestHandler = (req, res, body) => {
+    capturedSysMsg = body.messages[0].content;
+    sse(res, { role: 'assistant', content: 'missing agents ok' });
+  };
+
+  try {
+    const result = await runMi(['-p', 'test missing agents']);
+    assert.strictEqual(result.status, 0, 'Should not crash with missing AGENTS.md');
+    assert.match(result.stdout, /missing agents ok/);
+    // System prompt should not reference any AGENTS.md content
+    assert.ok(capturedSysMsg.includes('CWD:'), 'System prompt should still contain CWD');
+    assert.ok(capturedSysMsg.includes('Date:'), 'System prompt should still contain Date');
+    // Verify no undefined/null errors - system message should be well-formed
+    assert.ok(!capturedSysMsg.includes('undefined'), 'System prompt should not contain "undefined"');
+    assert.ok(!capturedSysMsg.includes('null'), 'System prompt should not contain literal "null"');
+  } finally {
+    // Restore original state
+    if (oldContent !== null) {
+      writeFileSync(agentsFile, oldContent);
+    }
+    // If it didn't exist before, leave it deleted
+  }
+});
