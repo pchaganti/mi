@@ -905,3 +905,43 @@ test('REPL error recovery removes failed user message from history', async () =>
   assert.strictEqual(lastBody.messages[1].role, 'user');
   assert.strictEqual(lastBody.messages[1].content, 'recovery_message');
 });
+
+test('REPL readline close exits cleanly', async () => {
+  // Test readline.on('close') handler - when user sends EOF (Ctrl+D), process exits with code 0
+  const result = await new Promise((resolve) => {
+    const child = spawn('node', ['-e', `process.stdin.isTTY = true; import(${JSON.stringify(INDEX_PATH)})`], {
+      env: {
+        ...process.env,
+        OPENAI_BASE_URL: serverUrl,
+        OPENAI_API_KEY: 'test-key',
+        http_proxy: '',
+        https_proxy: '',
+        HTTP_PROXY: '',
+        HTTPS_PROXY: ''
+      }
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', d => {
+      const out = d.toString();
+      stdout += out;
+
+      // Once we see the prompt, close stdin to trigger readline close event
+      if (out.includes('> ')) {
+        child.stdin.end();  // Sends EOF, triggers readline 'close' event
+      }
+    });
+    child.stderr.on('data', d => stderr += d.toString());
+
+    child.on('close', code => {
+      resolve({ status: code, stdout, stderr });
+    });
+  });
+
+  // readline.on('close') should trigger process.exit(0)
+  assert.strictEqual(result.status, 0, 'Should exit with code 0 when readline closes (EOF/Ctrl+D)');
+  // Verify we were in REPL mode (saw the version banner)
+  assert.match(result.stdout, /◰ mi/, 'Should have shown REPL banner before exit');
+});
