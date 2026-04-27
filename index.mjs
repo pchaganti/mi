@@ -25,7 +25,7 @@ const tools = {
   /* Load a skill's SKILL.md by name, or list available skills as `- name: description` bullets parsed from YAML frontmatter. */
   skill: ({name}) => name ? loadSkill(name) : listSkills().join('\n'),
 
-}; const meta = s => ({ name: s.match(/^name:\s*(.+)$/m)?.[1], description: s.match(/^description:\s*(.+)$/m)?.[1] || '' }), skillDirs = () => [`${DIR}skills/`, `${process.env.HOME || homedir()}/.agents/skills/`];
+}; const meta = s => ({ name: s.match(/^name:\s*(.+)$/m)?.[1], description: s.match(/^description:\s*(.+)$/m)?.[1] || '' }), skillDirs = () => [`${DIR}skills/`, `${process.env.HOME || homedir()}/.agents/skills/`], dim = s => `\x1b[90m${s}\x1b[0m`;
 const listSkills = () => skillDirs().flatMap(dir => existsSync(dir) ? readdirSync(dir).filter(d => existsSync(dir+d+'/SKILL.md')).map(d => { const {name,description} = meta(readFileSync(dir+d+'/SKILL.md','utf8')); return `- ${name||d}: ${description}`; }) : []), loadSkill = n => { for (const d of skillDirs()) if (existsSync(d+n+'/SKILL.md')) return readFileSync(d+n+'/SKILL.md','utf8'); }, makeParams = (...keys) => ({ type: 'object', properties: Object.fromEntries(keys.map(k => [k.replace('?',''), { type: 'string' }])), required: keys.filter(k => !k.startsWith('?')) });
 
 /* Tool definitions formatted for the OpenAI API. */
@@ -46,11 +46,11 @@ async function run(messages) { while (true) {
   if (message.content) process.stdout.write('\n'); messages.push(message); if (!message.tool_calls) return;
 
   for (const toolCall of message.tool_calls) {
-    const {name} = toolCall.function, args = JSON.parse(toolCall.function.arguments), formatDim = str => `\x1b[90m${str}\x1b[0m`;
+    const {name} = toolCall.function, args = JSON.parse(toolCall.function.arguments);
 
     /* Log the call, run the tool, log a truncated result, push to history. */
-    console.log(formatDim(`⟡ ${name}(${JSON.stringify(args)})`)); const out = String(await tools[name](args));
-    console.log(formatDim(out.length > 200 ? out.slice(0, 200) + '…' : out)); messages.push({ role: 'tool', tool_call_id: toolCall.id, content: out });
+    console.log(dim(`⟡ ${name}(${JSON.stringify(args)})`)); const out = String(await tools[name](args));
+    console.log(dim(out.length > 200 ? out.slice(0, 200) + '…' : out)); messages.push({ role: 'tool', tool_call_id: toolCall.id, content: out });
 
   } } }
 
@@ -72,4 +72,4 @@ if (!process.stdin.isTTY) { let inputStr = ''; for await (const chunk of process
 /* Set up the readline interface and enter the interactive REPL. */
 const readLine = createInterface({ input: process.stdin, output: process.stdout }); const promptUser = query => new Promise(resolve => readLine.question(query, resolve)); const ver = JSON.parse(readFileSync(DIR+'package.json','utf8')).version; console.log('\x1b[38;5;208m◰ mi\x1b[90m/'+ver+'\x1b[0m');
 
-readLine.on('close', () => process.exit(0)); while (true) { const input = await promptUser('\n> '); if (input === '/reset') { history.splice(1); console.log('\x1b[90m✓ reset\x1b[0m'); continue; } if (input.trim()) { history.push({ role: 'user', content: input }); process.stdout.write('\x1b[90m─────\x1b[0m\n'); try { await run(history); } catch(e) { console.error('\x1b[31m✗ ' + e.message + '\x1b[0m'); history.pop(); } } }
+readLine.on('close', () => process.exit(0)); while (true) { const input = await promptUser('\n> '); if (input === '/reset') { history.splice(1); console.log(dim('✓ reset')); continue; } if (input.trim()) { history.push({ role: 'user', content: input }); process.stdout.write(dim('─────')+'\n'); try { await run(history); } catch(e) { console.error('\x1b[31m✗ ' + e.message + '\x1b[0m'); history.pop(); } } }
